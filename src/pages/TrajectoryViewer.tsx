@@ -12,7 +12,7 @@ import { ArcGridView, tryParseArcGrids } from '../components/FileRenderer'
 import AftPanel from '../components/AftPanel'
 import type { AftReport } from '../lib/aft'
 import { FORMAT_LABELS, ROLE_STYLES, fmtDuration, fmtReward, fmtTokens, prettyModel } from '../lib/format'
-import { useDatasetStore, useLookups } from '../lib/dataset'
+import { useDatasetStore, useLookups, useRunSteps } from '../lib/dataset'
 import type { HumanLabel, LabelDecision, Mutation, Run, Step } from '../lib/types'
 
 const MUT_STYLES: Record<Mutation['kind'], string> = {
@@ -148,6 +148,11 @@ export default function TrajectoryViewer() {
   const { data, error } = useDatasetStore()
   const lk = useLookups(data)
 
+  // Trajectories are externalized to public/runs/<id>.json and lazy-loaded the
+  // first time a run opens (inline for uploaded & tour runs).
+  const runForSteps = data?.runs.find((x) => x.id === runId)
+  const { steps: loadedSteps, error: stepsError } = useRunSteps(runForSteps)
+
   // Deep-link a step via ?step=N (used by the guided tour and shareable links).
   const [searchParams] = useSearchParams()
   const stepParam = searchParams.get('step')
@@ -175,7 +180,7 @@ export default function TrajectoryViewer() {
   }
 
   const stepLabel = useMemo(() => labels.find((l) => l.stepIndex === activeStep), [labels, activeStep])
-  const stepCount = data?.runs.find((x) => x.id === runId)?.steps.length ?? 0
+  const stepCount = loadedSteps.length
 
   // Reset to the start when a different trajectory opens.
   useEffect(() => {
@@ -210,8 +215,17 @@ export default function TrajectoryViewer() {
   if (!task || !run) return <div className="p-8 text-zinc-400">Run not found.</div>
   const agent = lk.agent(run.agentId)
 
+  // The trajectory for this run is still being fetched from public/runs/<id>.json.
+  if (run.stepCount > 0 && loadedSteps.length === 0) {
+    if (stepsError)
+      return <div className="p-8 text-rose-400">Failed to load trajectory: {stepsError}</div>
+    return <Loading />
+  }
+  // The run object the viewer renders, with its (lazy-loaded) steps populated.
+  const erun: Run = { ...run, steps: loadedSteps }
+
   // Metric-only runs ship aggregate numbers but no trajectory.
-  if (run.steps.length === 0) {
+  if (erun.steps.length === 0) {
     return (
       <>
         <PageHeader
@@ -243,7 +257,7 @@ export default function TrajectoryViewer() {
     )
   }
 
-  const step = run.steps[Math.min(activeStep, run.steps.length - 1)]
+  const step = erun.steps[Math.min(activeStep, erun.steps.length - 1)]
 
   function upsertLabel(patch: Partial<HumanLabel>) {
     setLabels((prev) => {
@@ -267,7 +281,7 @@ export default function TrajectoryViewer() {
     <>
       <PageHeader
         title={`${agent ? prettyModel(agent.model) : run.agentId}`}
-        subtitle={`${task.title} · ${run.steps.length} steps · ${run.turns} turns · ${fmtDuration(run.durationSec)}${run.tokens?.prompt ? ` · ${fmtTokens(run.tokens.prompt)} prompt tok` : ''}`}
+        subtitle={`${task.title} · ${erun.steps.length} steps · ${run.turns} turns · ${fmtDuration(run.durationSec)}${run.tokens?.prompt ? ` · ${fmtTokens(run.tokens.prompt)} prompt tok` : ''}`}
         actions={
           <>
             <Pill>{FORMAT_LABELS[run.format]}</Pill>
@@ -281,7 +295,7 @@ export default function TrajectoryViewer() {
       {/* Film transport */}
       <Transport
         active={activeStep}
-        count={run.steps.length}
+        count={erun.steps.length}
         playing={playing}
         speed={speed}
         title={stepTitle(step)}
@@ -289,11 +303,11 @@ export default function TrajectoryViewer() {
         elapsedSec={step.tSec ?? null}
         totalSec={run.durationSec}
         onPlay={() => {
-          if (activeStep >= run.steps.length - 1) setActiveStep(0)
+          if (activeStep >= erun.steps.length - 1) setActiveStep(0)
           setPlaying((p) => !p)
         }}
         onPrev={() => { setPlaying(false); setActiveStep((s) => Math.max(0, s - 1)) }}
-        onNext={() => { setPlaying(false); setActiveStep((s) => Math.min(run.steps.length - 1, s + 1)) }}
+        onNext={() => { setPlaying(false); setActiveStep((s) => Math.min(erun.steps.length - 1, s + 1)) }}
         onSeek={(i) => { setPlaying(false); setActiveStep(i) }}
         onSpeed={setSpeed}
         stepsCollapsed={timelineCollapsed}
@@ -313,10 +327,10 @@ export default function TrajectoryViewer() {
         {/* Step timeline */}
         <div data-tour="timeline" className="h-full overflow-y-auto p-3">
           <div className="mb-2 px-1 text-xs uppercase tracking-wide text-zinc-500">
-            {run.steps.length} steps
+            {erun.steps.length} steps
           </div>
           <ol className="space-y-1">
-            {run.steps.map((s) => {
+            {erun.steps.map((s) => {
               const lbl = labels.find((l) => l.stepIndex === s.index)
               return (
                 <li key={s.index}>
@@ -366,7 +380,7 @@ export default function TrajectoryViewer() {
         {/* Environment stage — the "film screen" */}
         <Panel defaultSize={53} minSize={25}>
         <div data-tour="stage" className="h-full min-w-0 overflow-hidden">
-          <EnvironmentStage steps={run.steps} activeStep={activeStep} task={task} />
+          <EnvironmentStage steps={erun.steps} activeStep={activeStep} task={task} />
         </div>
         </Panel>
         <PanelResizeHandle className="w-1 bg-ink-700 transition-colors hover:bg-accent/50" />
@@ -403,7 +417,7 @@ export default function TrajectoryViewer() {
               <GradePanel grade={run.grade} failureReason={run.failureReason} />
             ) : panel === 'aft' ? (
               <AftPanel
-                run={run}
+                run={erun}
                 task={task}
                 agent={agent}
                 vendor={lk.vendor(run.vendorId)}
@@ -412,7 +426,7 @@ export default function TrajectoryViewer() {
                 onReport={handleAftReport}
               />
             ) : panel === 'artifacts' ? (
-              <RunArtifacts run={run} activeStep={activeStep} onJump={(i) => { setPlaying(false); setActiveStep(i) }} />
+              <RunArtifacts run={erun} activeStep={activeStep} onJump={(i) => { setPlaying(false); setActiveStep(i) }} />
             ) : (
               <div className="space-y-4">
                 <div>

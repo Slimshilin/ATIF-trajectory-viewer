@@ -11,19 +11,25 @@ Source A — Terminal-Bench 2.1 (Apache-2.0)
     one trial at a time, cached under data/hf-leaderboard-cache/.
   • The leaderboard repo ships no audit JSONs, so these runs start
     without a pre-computed AFT report — visitors can generate one
-    in-browser or via the bridge.
+    in-browser with their own API key.
 
 Source B — Harbor-Index annotate bundle (Apache-2.0)
-  • Full Harbor directories + one trial each + pre-computed audits
-    under data/harbor-annotate-bundle/<task>/ (gitignored; the
-    user's harbor-annotate-bundle.zip extracted at this path).
-  • The audit reports are already in AFT v1.0 shape, so we copy
-    one per task to public/aft/<runId>.json — these runs show
-    "✦ Pre-analyzed" immediately, no key or bridge required.
+  • Full Harbor directories + EVERY agent trial (~20 per task) +
+    pre-computed audits under data/harbor-annotate-bundle/<task>/
+    (gitignored; the user's harbor-annotate-bundle.zip extracted here).
+  • One annotated trial per task carries audit reports already in
+    AFT v1.0 shape; we copy one to public/aft/<runId>.json so that
+    run shows "✦ Pre-analyzed" immediately, no key required.
+
+Every run's trajectory is externalized to public/runs/<runId>.json and
+lazy-loaded by the viewer, keeping public/dataset.json small. Credentials
+that leaked into a trajectory (e.g. an `env` dump) are redacted at ingest
+(see scrub_secrets) so nothing under public/ ships a live key.
 
 Output:
-  - public/dataset.json
-  - public/aft/<runId>.json + public/aft/index.json
+  - public/dataset.json                (run metadata, no inline steps)
+  - public/runs/<runId>.json           (one trajectory per run)
+  - public/aft/<runId>.json + index.json
 
 Run from the repo root:
     python3 scripts/ingest.py
@@ -40,6 +46,10 @@ HF_CACHE = os.path.join(ROOT, "data", "hf-leaderboard-cache")
 BUNDLE = os.path.join(ROOT, "data", "harbor-annotate-bundle")
 OUT = os.path.join(ROOT, "public", "dataset.json")
 AFT_DIR = os.path.join(ROOT, "public", "aft")
+# Per-run trajectories are written here one file per run (public/runs/<id>.json)
+# and lazy-loaded by the viewer when a trajectory opens. This keeps dataset.json
+# small (metadata only) even with hundreds of multi-MB trajectories.
+RUNS_DIR = os.path.join(ROOT, "public", "runs")
 
 # --- Source A: TB 2.1 --------------------------------------------------------
 TB_API = "https://huggingface.co/api/datasets/harborframework/terminal-bench-2-leaderboard"
@@ -88,6 +98,10 @@ MAX_INLINE_CHARS = 200_000
 # Skip files larger than this on disk entirely (.duckdb / .sqlite / .parquet
 # / etc. — meaningless without a player and just bloats the bundle).
 MAX_FILE_BYTES = 1_000_000
+# Per-step text/observation/reasoning cap. A handful of trajectories carry
+# multi-MB tool outputs (full file dumps, fuzzer logs); capping each field keeps
+# per-run files browser-friendly while preserving the step-by-step structure.
+STEP_FIELD_CAP = 40_000
 SKIP_EXTS = {".duckdb", ".sqlite", ".sqlite3", ".db", ".parquet", ".pyc", ".so",
              ".o", ".a", ".pyd", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz",
              ".zip", ".jar", ".class"}
@@ -101,6 +115,7 @@ vendors: dict[str, dict] = {}
 agents: dict[str, dict] = {}
 tasks: list[dict] = []
 runs: list[dict] = []
+aft_runs: set[str] = set()  # run ids that got a promoted AFT report
 
 
 def slug(s: str) -> str:
@@ -277,9 +292,8 @@ def collect_files(root: str, base: str) -> list[dict]:
                 content = read_text(full)
                 if content is None: continue
                 if len(content) > MAX_INLINE_CHARS:
-                    rec["content"] = content[:MAX_INLINE_CHARS] + f"\n…[truncated, {len(content) - MAX_INLINE_CHARS} more chars]"
-                else:
-                    rec["content"] = content
+                    content = content[:MAX_INLINE_CHARS] + f"\n…[truncated, {len(content) - MAX_INLINE_CHARS} more chars]"
+                rec["content"] = scrub_secrets(content)
                 if kind == "code":
                     rec["language"] = LANG.get(ext)
             out.append(rec)
@@ -353,6 +367,70 @@ def _parse_tool_calls(raw):
     return []
 
 
+# --- secret scrubbing -------------------------------------------------------
+# Agent trajectories occasionally capture live credentials (e.g. an `env` dump
+# or `echo $OPENAI_API_KEY` printed the run-infrastructure key into the log).
+# This is benchmark data we publish as-is otherwise, so we redact high-confidence
+# credential patterns before anything reaches public/. Test fixtures that merely
+# *look* like keys (e.g. an OAuth1 RSA test PEM in unit-test output) are left
+# intact — we only target provider key formats and explicit secret assignments.
+SECRET_PATTERNS = [
+    (re.compile(r"sk-(?:ant-|proj-)?[A-Za-z0-9]{24,}"), "[REDACTED_API_KEY]"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"), "[REDACTED_GH_TOKEN]"),
+    (re.compile(r"AIza[0-9A-Za-z_\-]{30,}"), "[REDACTED_GOOGLE_KEY]"),
+    (re.compile(r"xox[baprs]-[0-9A-Za-z\-]{10,}"), "[REDACTED_SLACK_TOKEN]"),
+    (re.compile(r"glpat-[A-Za-z0-9_\-]{20,}"), "[REDACTED_GITLAB_TOKEN]"),
+    (re.compile(r"\bhf_[A-Za-z0-9]{30,}"), "[REDACTED_HF_TOKEN]"),
+    # Twilio Account SID / API key — \b…\b so we only catch a standalone
+    # 34-char token, not a 34-char window inside a longer hex blob.
+    (re.compile(r"\bAC[0-9a-fA-F]{32}\b"), "[REDACTED_TWILIO_SID]"),
+    (re.compile(r"\bSK[0-9a-fA-F]{32}\b"), "[REDACTED_TWILIO_KEY]"),
+]
+# Env-var / config assignments whose NAME marks the value as a secret. Keeps the
+# name, redacts the value (stops at quotes/commas/braces so JSON stays parseable).
+ENV_SECRET = re.compile(
+    r"((?:[A-Za-z0-9_]*)(?:API[_-]?KEY|ACCESS[_-]?KEY|SECRET[_-]?KEY|_SECRET|"
+    r"_TOKEN|ACCESS[_-]?TOKEN|PASSWORD|PASSWD)\s*[=:]\s*[\"']?)([^\s\"',}]{6,})",
+    re.IGNORECASE,
+)
+
+
+# Cheap literal pre-filter: the full credential regexes are expensive on large
+# alphanumeric blobs (~1 MB/s), and the overwhelming majority of fields contain
+# no credential at all. A single fast scan for any trigger substring lets us skip
+# the heavy patterns entirely unless a candidate is actually present.
+SECRET_HINT = re.compile(
+    r"sk-|AKIA|gh[pousr]_|AIza|xox[baprs]-|glpat-|\bhf_|"
+    r"\bAC[0-9a-fA-F]{31}|\bSK[0-9a-fA-F]{31}|"  # Twilio SID / API key shape
+    r"api[_-]?key|access[_-]?key|secret|_token|access[_-]?token|password|passwd",
+    re.IGNORECASE,
+)
+
+
+def scrub_secrets(v):
+    if not isinstance(v, str) or not v:
+        return v
+    if not SECRET_HINT.search(v):
+        return v
+    s = v
+    for pat, repl in SECRET_PATTERNS:
+        s = pat.sub(repl, s)
+    s = ENV_SECRET.sub(lambda m: m.group(1) + "[REDACTED]", s)
+    return s
+
+
+def _cap(v):
+    """Truncate an oversized text field (leaving a marker), then scrub
+    credentials. Truncating first keeps scrubbing cheap on multi-MB fields; a
+    secret straddling the cut is left only as an unusable sub-24-char fragment,
+    and any complete secret inside the kept window is still redacted. None /
+    non-str pass through untouched."""
+    if isinstance(v, str) and len(v) > STEP_FIELD_CAP:
+        v = v[:STEP_FIELD_CAP] + f"\n…[truncated, {len(v) - STEP_FIELD_CAP} more chars]"
+    return scrub_secrets(v)
+
+
 def step_from_atif(s: dict, idx: int) -> dict:
     role = {"user": "user", "agent": "agent", "assistant": "agent",
             "tool": "tool", "system": "system"}.get((s.get("source") or "agent").lower(), "agent")
@@ -367,9 +445,14 @@ def step_from_atif(s: dict, idx: int) -> dict:
             args = tc["function"].get("arguments")
         if not isinstance(args, str):
             args = json.dumps(args, ensure_ascii=False) if args is not None else None
-        tcs.append({"name": name, "args": args})
+        # Detect mutations on the raw args (so JSON parsing succeeds), then scrub
+        # the small derived fields; store the args capped-then-scrubbed.
         m = detect_mutation(name, args)
-        if m: muts.append(m)
+        if m:
+            for k in ("detail", "summary", "target"):
+                if m.get(k): m[k] = scrub_secrets(m[k])
+            muts.append(m)
+        tcs.append({"name": name, "args": _cap(args)})
     obs = s.get("observation")
     if isinstance(obs, dict):
         results = obs.get("results")
@@ -382,10 +465,10 @@ def step_from_atif(s: dict, idx: int) -> dict:
     metrics = s.get("metrics") or {}
     return {
         "index": idx, "role": role,
-        "text": s.get("message") if role != "tool" else None,
-        "reasoning": s.get("reasoning_content"),
+        "text": _cap(s.get("message")) if role != "tool" else None,
+        "reasoning": _cap(s.get("reasoning_content")),
         "toolCalls": tcs or None,
-        "observation": obs if (role == "tool" or obs) else None,
+        "observation": _cap(obs) if (role == "tool" or obs) else None,
         "toolName": None,
         "tokens": {"prompt": metrics.get("prompt_tokens"),
                    "completion": metrics.get("completion_tokens")} if metrics else None,
@@ -403,6 +486,24 @@ def run_artifacts(steps: list) -> list:
             if t and t not in seen:
                 seen.append(t)
     return seen[:30]
+
+
+def emit_run(run: dict) -> None:
+    """Externalize a run's step list to public/runs/<id>.json and register the
+    run (with an empty `steps` array) in the dataset. The viewer lazy-loads the
+    per-run file when the trajectory opens. `stepCount` always reflects the real
+    length so metrics, badges, and the timeline header stay correct."""
+    steps = run.get("steps") or []
+    run["stepCount"] = len(steps)
+    # Precompute the only step-derived flag the listing pages need, since they
+    # no longer have the inline steps to scan.
+    run["multiUser"] = sum(1 for s in steps if s.get("role") == "user") > 1
+    if steps:
+        os.makedirs(RUNS_DIR, exist_ok=True)
+        with open(os.path.join(RUNS_DIR, f"{run['id']}.json"), "w", encoding="utf-8") as f:
+            json.dump({"steps": steps}, f, ensure_ascii=False)
+    run["steps"] = []
+    runs.append(run)
 
 
 def iso_duration(a, b):
@@ -428,6 +529,9 @@ def promote_audit(audit_path: str, run_id: str) -> bool:
     if not (isinstance(rep, dict) and "failure_modes" in rep and "outcome" in rep):
         return False
     rep["trial"] = {**(rep.get("trial") or {}), "id": run_id}
+    # The audit may quote credentials it found in the trajectory (evidence
+    # quotes); scrub the serialized report before publishing.
+    rep = json.loads(scrub_secrets(json.dumps(rep, ensure_ascii=False)))
     os.makedirs(AFT_DIR, exist_ok=True)
     with open(os.path.join(AFT_DIR, f"{run_id}.json"), "w", encoding="utf-8") as f:
         json.dump(rep, f, ensure_ascii=False)
@@ -495,7 +599,7 @@ def load_tb_tasks(picks: list[str]) -> None:
         if not os.path.isdir(tdir):
             print(f"  ! task missing on disk: {name}")
             continue
-        instr = read_text(os.path.join(tdir, "instruction.md"))
+        instr = scrub_secrets(read_text(os.path.join(tdir, "instruction.md")))
         toml_text = read_text(os.path.join(tdir, "task.toml")) or ""
         meta = task_toml_meta(toml_text)
         files = collect_files(tdir, tdir)
@@ -536,7 +640,7 @@ def _tb_load_one_trial(agent_dir: str, date_dir: str, trial_rel: str,
     raw_steps = traj.get("steps") or []
     steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
     tid = slug(f"tb-{task_name}")
-    runs.append({
+    emit_run({
         "id": slug(f"tb-{trial_rel}-{harness}-{model}"),
         "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
         "status": "passed" if passed else ("failed" if reward is not None else "completed"),
@@ -594,7 +698,7 @@ def load_hi_task(task_name: str) -> bool:
     if not os.path.isdir(tdir):
         print(f"  ! task missing on disk: {task_name}")
         return False
-    instr = read_text(os.path.join(tdir, "instruction.md"))
+    instr = scrub_secrets(read_text(os.path.join(tdir, "instruction.md")))
     toml_text = read_text(os.path.join(tdir, "task.toml")) or ""
     meta = task_toml_meta(toml_text)
     # Collect the public task files. We start at the task root so root-level
@@ -610,6 +714,7 @@ def load_hi_task(task_name: str) -> bool:
             ext = os.path.splitext(fn)[1].lower()
             content = read_text(full)
             if content is not None:
+                content = scrub_secrets(content)
                 rec: dict = {"path": fn, "kind": kind, "content": content}
                 if kind == "code":
                     rec["language"] = LANG.get(ext)
@@ -636,70 +741,74 @@ def load_hi_task(task_name: str) -> bool:
         },
     })
 
-    # Load the (single) trial.
+    # Load EVERY trial under jobs/. The updated bundle ships ~20 agent
+    # trajectories per task (the previous bundle shipped only one); each job
+    # becomes its own Run. Pre-computed AFT audits live on a single annotated
+    # job per task, so only that run shows "✦ Pre-analyzed".
     jobs_root = os.path.join(tdir, "jobs")
     if not os.path.isdir(jobs_root):
         return True
     job_dirs = sorted(d for d in os.listdir(jobs_root) if os.path.isdir(os.path.join(jobs_root, d)))
-    if not job_dirs:
-        return True
-    job_dir = os.path.join(jobs_root, job_dirs[0])
-    result_p = os.path.join(job_dir, "result.json")
-    traj_p = os.path.join(job_dir, "agent", "trajectory.json")
+    loaded = 0
+    for job_name in job_dirs:
+        job_dir = os.path.join(jobs_root, job_name)
+        result_p = os.path.join(job_dir, "result.json")
+        traj_p = os.path.join(job_dir, "agent", "trajectory.json")
+        try:
+            result = json.load(open(result_p, encoding="utf-8"))
+            traj = json.load(open(traj_p, encoding="utf-8"))
+        except Exception as e:
+            print(f"  ! trial load failed for {task_name}/{job_name}: {e}")
+            continue
 
-    try:
-        result = json.load(open(result_p, encoding="utf-8"))
-        traj = json.load(open(traj_p, encoding="utf-8"))
-    except Exception as e:
-        print(f"  ! trial load failed for {task_name}: {e}")
-        return True
+        _cfg = result.get("config")
+        cfg_agent = (_cfg.get("agent") if isinstance(_cfg, dict) else None) or {}
+        if not isinstance(cfg_agent, dict): cfg_agent = {}
+        _ag = traj.get("agent") or {}
+        if not isinstance(_ag, dict): _ag = {}
+        harness = cfg_agent.get("name") or _ag.get("name") or "agent"
+        model = cfg_agent.get("model_name") or _ag.get("model_name")
+        aid = agent(harness, model, vid)
+        reward = ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward")
+        if reward is None:
+            rt = read_text(os.path.join(job_dir, "verifier", "reward.txt"))
+            if rt:
+                try: reward = float(rt.strip())
+                except: pass
+        passed = reward is not None and float(reward) >= 0.999
+        started = result.get("started_at")
+        finished = result.get("finished_at")
+        exc = result.get("exception_info")
 
-    _cfg = result.get("config")
-    cfg_agent = (_cfg.get("agent") if isinstance(_cfg, dict) else None) or {}
-    if not isinstance(cfg_agent, dict): cfg_agent = {}
-    _ag = traj.get("agent") or {}
-    if not isinstance(_ag, dict): _ag = {}
-    harness = cfg_agent.get("name") or _ag.get("name") or "agent"
-    model = cfg_agent.get("model_name") or _ag.get("model_name")
-    aid = agent(harness, model, vid)
-    reward = ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward")
-    if reward is None:
-        rt = read_text(os.path.join(job_dir, "verifier", "reward.txt"))
-        if rt:
-            try: reward = float(rt.strip())
-            except: pass
-    passed = reward is not None and float(reward) >= 0.999
-    started = result.get("started_at")
-    finished = result.get("finished_at")
-    exc = result.get("exception_info")
+        raw_steps = traj.get("steps") or []
+        steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
 
-    raw_steps = traj.get("steps") or []
-    steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
+        run_id = slug(f"hi-{task_name}-{job_name}")[:120]
+        emit_run({
+            "id": run_id,
+            "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
+            "status": "passed" if passed else ("failed" if reward is not None else "completed"),
+            "passed": passed, "reward": reward,
+            "steps": steps,
+            "artifacts": run_artifacts(steps),
+            "turns": sum(1 for s in steps if s["role"] == "agent"),
+            "durationSec": iso_duration(started, finished),
+            "tokens": None,
+            "grade": {
+                "score": reward, "maxScore": 1.0, "subscores": [],
+                "summary": f"{harness} · {model} · {job_name}",
+                "gate": None, "breakdown": None, "findings": None,
+            },
+            "failureReason": (str(exc)[:400] if exc else None),
+        })
+        loaded += 1
 
-    run_id = slug(f"hi-{task_name}-{os.path.basename(job_dir)}")[:120]
-    runs.append({
-        "id": run_id,
-        "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
-        "status": "passed" if passed else ("failed" if reward is not None else "completed"),
-        "passed": passed, "reward": reward,
-        "steps": steps, "stepCount": len(steps),
-        "artifacts": run_artifacts(steps),
-        "turns": sum(1 for s in steps if s["role"] == "agent"),
-        "durationSec": iso_duration(started, finished),
-        "tokens": None,
-        "grade": {
-            "score": reward, "maxScore": 1.0, "subscores": [],
-            "summary": f"{harness} · {model} · {os.path.basename(job_dir)}",
-            "gate": None, "breakdown": None, "findings": None,
-        },
-        "failureReason": (str(exc)[:400] if exc else None),
-    })
+        # Promote a pre-computed audit report when this job carries one.
+        audit_path = pick_audit(os.path.join(job_dir, "audits"))
+        if audit_path and promote_audit(audit_path, run_id):
+            aft_runs.add(run_id)
 
-    # Promote one pre-computed audit report.
-    audit_path = pick_audit(os.path.join(job_dir, "audits"))
-    if audit_path:
-        promote_audit(audit_path, run_id)
-
+    print(f"  · {task_name}: {loaded} trial(s)")
     return True
 
 
@@ -712,6 +821,9 @@ def build_showcase() -> list[dict]:
         bucket = by_task.get(t["id"], [])
         if not bucket:
             continue
+        # Prefer the pre-analyzed (AFT-promoted) trial so the Showcase launcher
+        # lands on a run that immediately shows failure-analysis.
+        bucket.sort(key=lambda r: r["id"] not in aft_runs)
         for r in bucket[:1]:
             out.append({
                 "vendorId": t["vendorId"], "taskId": t["id"], "runId": r["id"],
@@ -724,11 +836,16 @@ def build_showcase() -> list[dict]:
 
 
 def main() -> None:
-    # Clean previous AFT promotions (we re-derive every run).
+    # Clean previous AFT promotions and per-run trajectory files (we re-derive
+    # every run from scratch).
     if os.path.isdir(AFT_DIR):
         for fn in os.listdir(AFT_DIR):
             if fn.endswith(".json"):
                 os.remove(os.path.join(AFT_DIR, fn))
+    if os.path.isdir(RUNS_DIR):
+        for fn in os.listdir(RUNS_DIR):
+            if fn.endswith(".json"):
+                os.remove(os.path.join(RUNS_DIR, fn))
 
     print(f"=== Source A: Terminal-Bench 2.1 ({len(TB_TASK_PICKS)} tasks) ===")
     load_tb_tasks(TB_TASK_PICKS)
@@ -768,20 +885,23 @@ def main() -> None:
                 f"across four families (Anthropic, OpenAI, Google, Z-AI). Files are "
                 f"fetched lazily over HTTP and cached under data/hf-leaderboard-cache/ "
                 f"(gitignored). These runs ship NO pre-computed AFT reports — apply "
-                f"AFT in-browser with your own API key, or via the local bridge."
+                f"AFT in-browser with your own API key."
             )
         elif v["id"] == "harbor-index":
+            hi_runs = sum(1 for r in runs if r["vendorId"] == "harbor-index")
             v["coverage"] = (
                 f"{len(hi_picks)} tasks from the Harbor-Index annotate "
                 f"bundle (Apache-2.0) — each ships its full task directory "
-                f"(task.toml + instruction.md + environment + tests + solution), one "
-                f"trial's ATIF trajectory under jobs/<trial>/agent/trajectory.json, "
-                f"and a pre-computed AFT v1.0 audit report (promoted automatically "
-                f"to public/aft/<runId>.json at ingest time, so the viewer shows "
-                f"'✦ Pre-analyzed' on every run with no key or bridge). Picks span "
-                f"spreadsheet manipulation, web search, visual reasoning, SWE bug "
-                f"fixes, language transpilation, scientific analysis, and python "
-                f"performance — exercising every viewer feature."
+                f"(task.toml + instruction.md + environment + tests + solution) and "
+                f"ALL of its ATIF agent trajectories under jobs/<trial>/agent/"
+                f"trajectory.json ({hi_runs} trials total, ~20 per task). Trajectories "
+                f"are externalized to public/runs/<runId>.json and lazy-loaded by the "
+                f"viewer. One annotated trial per task additionally carries a "
+                f"pre-computed AFT v1.0 audit report (promoted to public/aft/<runId>.json "
+                f"at ingest time, so that run shows '✦ Pre-analyzed' with no key "
+                f"required). Picks span spreadsheet manipulation, web search, visual "
+                f"reasoning, SWE bug fixes, language transpilation, scientific analysis, "
+                f"and python performance — exercising every viewer feature."
             )
 
     showcase = build_showcase()
@@ -797,8 +917,11 @@ def main() -> None:
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(dataset, f, ensure_ascii=False)
     size = os.path.getsize(OUT) / 1e6
+    runs_files = [f for f in os.listdir(RUNS_DIR) if f.endswith(".json")] if os.path.isdir(RUNS_DIR) else []
+    runs_bytes = sum(os.path.getsize(os.path.join(RUNS_DIR, f)) for f in runs_files)
     print()
     print(f"Wrote {OUT} ({size:.1f} MB)")
+    print(f"Wrote {len(runs_files)} per-run trajectories to {RUNS_DIR} ({runs_bytes/1e6:.1f} MB)")
     print(f"vendors={len(vendors)} agents={len(agents)} "
           f"tasks={len(tasks)} runs={len(runs)} showcase={len(showcase)} aft={len(aft_ids)}")
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { AgentMetrics, Dataset, Run, Stat } from './types'
+import type { AgentMetrics, Dataset, Run, Stat, Step } from './types'
 import { TOUR_BUNDLE, TOUR_VENDOR_ID } from './tourTask'
 
 export interface UploadBundle {
@@ -70,6 +70,65 @@ export function useDataset(): Dataset | null {
 
 export function useDatasetStore(): Store {
   return useContext(DatasetContext)
+}
+
+// --- lazy per-run trajectories ---------------------------------------------
+// Large runs ship their `steps` externalized to public/runs/<id>.json (see
+// scripts/ingest.py) so dataset.json stays small. We fetch a run's steps the
+// first time its trajectory opens and cache the result for the session.
+
+const stepCache = new Map<string, Step[]>()
+const stepInflight = new Map<string, Promise<Step[]>>()
+
+export function loadRunSteps(run: Run): Promise<Step[]> {
+  if (run.steps.length) return Promise.resolve(run.steps) // inline (upload / tour)
+  if (run.stepCount <= 0) return Promise.resolve([])       // genuinely metrics-only
+  const cached = stepCache.get(run.id)
+  if (cached) return Promise.resolve(cached)
+  const inflight = stepInflight.get(run.id)
+  if (inflight) return inflight
+  const p = fetch(`${import.meta.env.BASE_URL}runs/${run.id}.json`)
+    .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+    .then((j: { steps?: Step[] }) => {
+      const steps = j.steps ?? []
+      stepCache.set(run.id, steps)
+      return steps
+    })
+    .finally(() => stepInflight.delete(run.id))
+  stepInflight.set(run.id, p)
+  return p
+}
+
+/** Resolve a run's trajectory steps, lazy-fetching the externalized file when
+ *  needed. Returns `{ steps, loading, error }`; `steps` is `[]` while loading. */
+export function useRunSteps(run: Run | undefined | null): {
+  steps: Step[]
+  loading: boolean
+  error: string | null
+} {
+  const [steps, setSteps] = useState<Step[]>(() => run?.steps ?? [])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!run) { setSteps([]); return }
+    if (run.steps.length) { setSteps(run.steps); setLoading(false); setError(null); return }
+    if (run.stepCount <= 0) { setSteps([]); setLoading(false); setError(null); return }
+    const cached = stepCache.get(run.id)
+    if (cached) { setSteps(cached); setLoading(false); setError(null); return }
+    let cancelled = false
+    setSteps([]) // clear stale steps from a previously-viewed run
+    setLoading(true)
+    setError(null)
+    loadRunSteps(run)
+      .then((s) => { if (!cancelled) setSteps(s) })
+      .catch((e) => { if (!cancelled) setError(String(e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id])
+
+  return { steps, loading, error }
 }
 
 // --- lookups ---------------------------------------------------------------

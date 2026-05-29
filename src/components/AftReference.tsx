@@ -3,14 +3,12 @@ import clsx from 'clsx'
 
 /** Slide-over showing the AFT taxonomy + the full prompts inline. */
 export default function AftReference({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<'intro' | 'audit' | 'agentic'>('intro')
+  const [tab, setTab] = useState<'intro' | 'audit'>('intro')
   const [prompt, setPrompt] = useState<string>('')
-  const [agenticPrompt, setAgenticPrompt] = useState<string>('')
 
   useEffect(() => {
     const base = import.meta.env.BASE_URL
     fetch(`${base}aft-prompt.md`).then((r) => r.text()).then(setPrompt).catch(() => setPrompt('(failed to load)'))
-    fetch(`${base}aft-prompt.agentic.md`).then((r) => r.text()).then(setAgenticPrompt).catch(() => setAgenticPrompt('(failed to load)'))
   }, [])
 
   return (
@@ -23,7 +21,6 @@ export default function AftReference({ onClose }: { onClose: () => void }) {
         <div className="flex border-b border-ink-700">
           <Tab active={tab === 'intro'} onClick={() => setTab('intro')}>Introduction</Tab>
           <Tab active={tab === 'audit'} onClick={() => setTab('audit')}>Auditor prompt</Tab>
-          <Tab active={tab === 'agentic'} onClick={() => setTab('agentic')}>Agentic prompt</Tab>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-5 text-sm leading-relaxed text-zinc-300">
           {tab === 'intro' ? (
@@ -47,19 +44,16 @@ export default function AftReference({ onClose }: { onClose: () => void }) {
                 A×B×C×D tuple, a verbatim evidence quote, the implicated steps, and a counterfactual fix.
               </p>
               <p className="text-zinc-400">
-                The two prompts are interchangeable; pick whichever matches your runtime. The
-                <strong className="text-zinc-200"> Auditor prompt</strong> ships the trajectory as one
-                JSON payload; the <strong className="text-zinc-200">Agentic prompt</strong> tells the
-                model to read the trajectory off a mounted filesystem (used by the local bridge).
+                The <strong className="text-zinc-200">Auditor prompt</strong> in the neighbouring tab ships
+                the trajectory as one JSON payload to your chosen model.
               </p>
               <p className="text-xs text-zinc-500">
-                Both prompts are bundled in <code className="rounded bg-ink-800 px-1">public/aft-prompt.md</code>{' '}
-                and <code className="rounded bg-ink-800 px-1">public/aft-prompt.agentic.md</code> — open and
-                modify them to taste; the panel reads them at runtime.
+                It's bundled in <code className="rounded bg-ink-800 px-1">public/aft-prompt.md</code> — open
+                and modify it to taste; the panel reads it at runtime.
               </p>
             </div>
           ) : (
-            <pre className="whitespace-pre-wrap font-mono text-[12px] text-zinc-300">{tab === 'audit' ? prompt : agenticPrompt}</pre>
+            <pre className="whitespace-pre-wrap font-mono text-[12px] text-zinc-300">{prompt}</pre>
           )}
         </div>
       </div>

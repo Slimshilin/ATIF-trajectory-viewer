@@ -27,7 +27,7 @@ everything runs in your tab.
 ## Samples
 
 - **Terminal-Bench 2.1** -- 10 task definitions × 4 agent submissions (Anthropic / OpenAI / Google / Z-AI), 40 trajectories fetched lazily from the official leaderboard.
-- **Harbor-Index annotate bundle** -- 35 tasks, 1 trial each, with **pre-baked AFT reports**. Tasks span spreadsheets, ARC-AGI grids, web search, lab images, SWE bug fixes, ML pipelines, scientific reasoning, and python performance.
+- **Harbor-Index annotate bundle** -- 35 tasks, **every agent trial ingested** (~20 per task, 761 trajectories total), each task carrying one **pre-baked AFT report** on its annotated trial. Trajectories are externalized to `public/runs/<runId>.json` and lazy-loaded when a run opens, so `dataset.json` stays small. Tasks span spreadsheets, ARC-AGI grids, web search, lab images, SWE bug fixes, ML pipelines, scientific reasoning, and python performance.
 - Everything cited above is Apache-2.0.
 
 ## Features
@@ -46,7 +46,7 @@ A scrubbable step timeline on the left, the agent's live workspace (terminal + f
 
 ### 3. AFT failure-mode analysis (Agent Failure Taxonomy v1.0)
 
-A four-axis audit (**A** Stage · **B** Root cause · **C** Behaviour · **D** Impact). Pre-computed reports load instantly for every Harbor-Index run; for un-analyzed runs, **Apply AFT analysis** uses your browser-stored Anthropic / OpenAI key to generate one. Each failure mode lists its A×B×C×D code, an evidence quote, the implicated step indices (clickable -- they jump the whole viewer to that step), and a counterfactual fix. Reward, verifier log, rubric subscores, and step-level human annotation all live in the same right rail.
+A four-axis audit (**A** Stage · **B** Root cause · **C** Behaviour · **D** Impact). A pre-computed report loads instantly for each task's annotated trial; for every other ingested trial, **Apply AFT analysis** uses your browser-stored Anthropic / OpenAI key to generate one. Each failure mode lists its A×B×C×D code, an evidence quote, the implicated step indices (clickable -- they jump the whole viewer to that step), and a counterfactual fix. Reward, verifier log, rubric subscores, and step-level human annotation all live in the same right rail.
 
 ![AFT panel](./img/AFT_demo.png)
 

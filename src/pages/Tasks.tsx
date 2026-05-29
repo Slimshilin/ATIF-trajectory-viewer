@@ -40,7 +40,9 @@ function taskBadges(task: Task, runs: Run[], aftIds: Set<string>): Badge[] {
   const editKinds = new Set<string>()
   let hasSteps = false
   for (const r of runs) {
-    if (r.steps.length) hasSteps = true
+    // Lazy runs carry stepCount but an empty inline steps array (the trajectory
+    // lives in public/runs/<id>.json); uploaded/tour runs keep steps inline.
+    if (r.stepCount > 0 || r.steps.length) hasSteps = true
     for (const s of r.steps) for (const e of s.edits ?? []) editKinds.add(e.t)
   }
   const has = (t: string) => editKinds.has(t)
@@ -53,7 +55,7 @@ function taskBadges(task: Task, runs: Run[], aftIds: Set<string>): Badge[] {
   if (has('web')) b.push({ key: 'web', Icon: Globe, cls: 'bg-sky-500/15 text-sky-300', title: 'Web page' })
   if (has('screenshot') || has('computer')) b.push({ key: 'screen', Icon: MonitorPlay, cls: 'bg-violet-500/15 text-violet-300', title: 'Computer-use / screenshots' })
   if (has('doc')) b.push({ key: 'doc', Icon: FileType2, cls: 'bg-violet-500/15 text-violet-300', title: 'Document' })
-  if (runs.some((r) => r.steps.filter((s) => s.role === 'user').length > 1)) b.push({ key: 'chat', Icon: MessagesSquare, cls: 'bg-sky-500/15 text-sky-300', title: 'Simulated-user conversation' })
+  if (runs.some((r) => r.multiUser || r.steps.filter((s) => s.role === 'user').length > 1)) b.push({ key: 'chat', Icon: MessagesSquare, cls: 'bg-sky-500/15 text-sky-300', title: 'Simulated-user conversation' })
   if (task.files.some((f) => /dockerfile|docker-compose/i.test(f.path))) b.push({ key: 'env', Icon: Container, cls: 'bg-amber-500/15 text-amber-300', title: 'Dockerfile environment' })
   if (fileKind('code') || fileKind('diff')) b.push({ key: 'code', Icon: Code2, cls: 'bg-zinc-500/15 text-zinc-300', title: 'Code / diff files' })
   if (runs.length > 1) b.push({ key: 'multi', Icon: Layers, cls: 'bg-zinc-500/15 text-zinc-300', title: `${runs.length} runs` })

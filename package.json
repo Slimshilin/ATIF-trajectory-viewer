@@ -7,10 +7,6 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "bridge": "node bridge/aft-bridge.mjs",
-    "bridge:docker": "ANALYZER_RUNTIME=docker node bridge/aft-bridge.mjs",
-    "analyzer:image": "docker build -t aft-analyzer -f bridge/analyzer.Dockerfile bridge",
-    "aft:batch": "node bridge/aft-batch.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

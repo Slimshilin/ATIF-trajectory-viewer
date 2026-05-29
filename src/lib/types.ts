@@ -123,9 +123,16 @@ export interface Run {
   status: RunStatus
   passed: boolean
   reward: number | null
+  /** Trajectory steps. Empty in the baked dataset for runs whose steps are
+   *  externalized to public/runs/<id>.json and lazy-loaded on demand (see
+   *  loadRunSteps / useRunSteps); always inline for uploaded & tour runs. */
   steps: Step[]
-  /** Step count, even for metric-only runs that ship no trajectory. */
+  /** Step count, even for metric-only runs that ship no trajectory, and for
+   *  lazy runs whose `steps` array is empty until fetched. */
   stepCount: number
+  /** Precomputed at ingest (steps with role "user" > 1) so listing pages can
+   *  flag simulated-user conversations without loading the trajectory. */
+  multiUser?: boolean
   turns: number
   durationSec: number | null
   /** Distinct artifacts the run touched (derived from step mutations). */

@@ -3,8 +3,8 @@ import clsx from 'clsx'
 import AftReference from './AftReference'
 import { useAuth } from '../lib/auth'
 import {
-  buildAftPrompt, buildAftAgenticPrompt, buildBridgeFiles, runAft, runAftViaBridge,
-  aftLabel, ENGINE_MODELS, ENGINE_LABEL, EFFORTS, DEFAULT_BRIDGE_URL,
+  buildAftPrompt, runAft,
+  aftLabel, ENGINE_MODELS, ENGINE_LABEL, EFFORTS,
   type AftConfig, type AftEngine, type AftReport,
 } from '../lib/aft'
 import type { Agent, Run, Task, Vendor } from '../lib/types'
@@ -18,7 +18,7 @@ const closenessStyle: Record<string, string> = {
 }
 
 function loadCfg(): AftConfig {
-  const base: AftConfig = { engine: 'claude', auth: 'subscription', model: ENGINE_MODELS.claude[0], effort: 'medium', apiKey: '', bridgeUrl: DEFAULT_BRIDGE_URL }
+  const base: AftConfig = { engine: 'claude', model: ENGINE_MODELS.claude[0], effort: 'medium', apiKey: '' }
   try {
     return { ...base, ...JSON.parse(localStorage.getItem(CFG_KEY) ?? '{}') }
   } catch {
@@ -48,28 +48,6 @@ export default function AftPanel({
   const [err, setErr] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
   const [precomputed, setPrecomputed] = useState(false)
-  const [health, setHealth] = useState<{ has: Record<string, boolean>; auth: Record<string, boolean> } | 'down' | null>(null)
-  const [connecting, setConnecting] = useState(false)
-  const bridgeBase = (cfg.bridgeUrl || DEFAULT_BRIDGE_URL).replace(/\/$/, '')
-
-  async function pingHealth() {
-    try { const r = await fetch(`${bridgeBase}/health`); setHealth(r.ok ? await r.json() : 'down') } catch { setHealth('down') }
-  }
-  useEffect(() => {
-    if (cfg.auth === 'subscription' && (editing || !report)) pingHealth()
-  }, [cfg.auth, cfg.bridgeUrl, editing]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function connect() {
-    setConnecting(true); setErr(null)
-    try {
-      const r = await fetch(`${bridgeBase}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cli: cfg.engine }) })
-      const d = await r.json()
-      if (d.needsManual) setErr(d.message)
-      await pingHealth()
-    } catch {
-      setErr(`Could not reach the bridge at ${bridgeBase}. Run "npm run bridge".`)
-    } finally { setConnecting(false) }
-  }
 
   useEffect(() => { onReport(report) }, [report, onReport])
   useEffect(() => {
@@ -95,22 +73,15 @@ export default function AftPanel({
 
   async function apply() {
     setErr(null)
-    if (cfg.auth === 'api' && !cfg.apiKey) { setEditing(true); return }
+    if (!cfg.apiKey) { setEditing(true); return }
     setLoading(true)
     try {
-      let rep: AftReport
-      if (cfg.auth === 'subscription') {
-        const tmpl = await fetch(`${import.meta.env.BASE_URL}aft-prompt.agentic.md`).then((r) => r.text())
-        const prompt = buildAftAgenticPrompt(tmpl, run, task, agent, vendor)
-        rep = await runAftViaBridge(cfg, prompt, buildBridgeFiles(run, task))
-      } else {
-        const tmpl = await fetch(`${import.meta.env.BASE_URL}aft-prompt.md`).then((r) => r.text())
-        rep = await runAft(cfg, buildAftPrompt(tmpl, run, task, agent, vendor))
-      }
+      const tmpl = await fetch(`${import.meta.env.BASE_URL}aft-prompt.md`).then((r) => r.text())
+      const rep = await runAft(cfg, buildAftPrompt(tmpl, run, task, agent, vendor))
       setReport(rep)
       setPrecomputed(false)
       localStorage.setItem(reportKey, JSON.stringify(rep))
-      record({ type: 'aft_analysis', runId: run.id, closeness: rep.outcome.closeness, engine: cfg.engine, auth: cfg.auth })
+      record({ type: 'aft_analysis', runId: run.id, closeness: rep.outcome.closeness, engine: cfg.engine })
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e))
     } finally {
@@ -149,7 +120,7 @@ export default function AftPanel({
         </div>
       </div>
 
-      {(editing || (!report && cfg.auth === 'api' && !cfg.apiKey)) && (
+      {(editing || (!report && !cfg.apiKey)) && (
         <div className="card space-y-2.5 p-3 text-xs">
           <Field label="Engine">
             <div className="flex gap-1.5">
@@ -157,17 +128,6 @@ export default function AftPanel({
                 <button key={e} onClick={() => saveCfg({ ...cfg, engine: e, model: ENGINE_MODELS[e][0] })}
                   className={clsx('flex-1 rounded px-2 py-1 font-medium', cfg.engine === e ? 'bg-accent text-white' : 'bg-ink-800 text-zinc-400')}>
                   {ENGINE_LABEL[e]}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Authentication">
-            <div className="flex gap-1.5">
-              {(['subscription', 'api'] as const).map((a) => (
-                <button key={a} onClick={() => saveCfg({ ...cfg, auth: a })}
-                  className={clsx('flex-1 rounded px-2 py-1 font-medium capitalize', cfg.auth === a ? 'bg-ink-700 text-white' : 'bg-ink-800 text-zinc-400')}>
-                  {a === 'subscription' ? 'Subscription' : 'API key'}
                 </button>
               ))}
             </div>
@@ -193,54 +153,13 @@ export default function AftPanel({
             </div>
           </Field>
 
-          {cfg.auth === 'subscription' ? (
-            <>
-              <Field label="Bridge URL">
-                <input value={cfg.bridgeUrl ?? DEFAULT_BRIDGE_URL} onChange={(e) => saveCfg({ ...cfg, bridgeUrl: e.target.value })} placeholder="http://localhost:8765"
-                  className="w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 font-mono text-zinc-200 outline-none focus:border-accent" />
-              </Field>
-              {/* live status + connect */}
-              {health === 'down' || health === null ? (
-                <div className="space-y-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">
-                  <div className="flex items-center justify-between">
-                    <span>{health === null ? 'checking bridge…' : '⚠ bridge not reachable'}</span>
-                    <button onClick={pingHealth} className="text-zinc-300 hover:text-white">retry</button>
-                  </div>
-                  {health === 'down' && (
-                    <button onClick={() => saveCfg({ ...cfg, auth: 'api' })} className="w-full rounded bg-accent px-2 py-1 font-medium text-white hover:bg-accent-soft">
-                      → Analyze online with your API key (no bridge needed)
-                    </button>
-                  )}
-                </div>
-              ) : !health.has[cfg.engine] ? (
-                <p className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-rose-200">
-                  {ENGINE_LABEL[cfg.engine]} CLI not installed on the bridge host.
-                </p>
-              ) : health.auth[cfg.engine] ? (
-                <p className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-emerald-200">
-                  ✓ {ENGINE_LABEL[cfg.engine]} connected (subscription)
-                </p>
-              ) : (
-                <button onClick={connect} disabled={connecting}
-                  className="w-full rounded bg-accent px-2 py-1.5 font-medium text-white hover:bg-accent-soft disabled:opacity-50">
-                  {connecting ? 'Opening login…' : `🔗 Connect ${ENGINE_LABEL[cfg.engine]} (browser login)`}
-                </button>
-              )}
-              <p className="text-[10px] leading-relaxed text-zinc-600">
-                Runs {ENGINE_LABEL[cfg.engine]} via your <span className="text-zinc-400">subscription login</span>. Connect opens the CLI's browser OAuth (Codex → ChatGPT incl. Google SSO; Claude → run <code className="font-mono">claude</code> then <code className="font-mono">/login</code> once). Start the bridge locally: <code className="font-mono text-accent">npm run bridge</code>. <span className="text-zinc-500">Subscription runs locally/self-hosted only — a hosted (Vercel) site can't run a CLI; use an API key or pre-computed reports there.</span>
-              </p>
-            </>
-          ) : (
-            <>
-              <Field label="API key">
-                <input type="password" value={cfg.apiKey} onChange={(e) => saveCfg({ ...cfg, apiKey: e.target.value })} placeholder={cfg.engine === 'claude' ? 'sk-ant-…' : 'sk-…'}
-                  className="w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-zinc-200 outline-none focus:border-accent" />
-              </Field>
-              <p className="text-[10px] leading-relaxed text-zinc-600">
-                Calls {cfg.engine === 'claude' ? 'the Anthropic API' : 'the OpenAI API'} directly from this browser. The key is stored only in localStorage; never uploaded anywhere.
-              </p>
-            </>
-          )}
+          <Field label="API key">
+            <input type="password" value={cfg.apiKey} onChange={(e) => saveCfg({ ...cfg, apiKey: e.target.value })} placeholder={cfg.engine === 'claude' ? 'sk-ant-…' : 'sk-…'}
+              className="w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-zinc-200 outline-none focus:border-accent" />
+          </Field>
+          <p className="text-[10px] leading-relaxed text-zinc-600">
+            Calls {cfg.engine === 'claude' ? 'the Anthropic API' : 'the OpenAI API'} directly from this browser. The key is stored only in localStorage; never uploaded anywhere.
+          </p>
         </div>
       )}
 
@@ -248,9 +167,9 @@ export default function AftPanel({
 
       {!report && !loading && !err && (
         <p className="text-xs text-zinc-500">
-          This run isn't pre-analyzed. Open <span className="text-zinc-300">⚙</span> to run a live AFT audit —
-          with your own <span className="text-zinc-300">API key</span> (in-browser, works anywhere) or the local
-          <span className="text-zinc-300"> subscription bridge</span>. Pre-analyzed runs show their report here automatically.
+          This run isn't pre-analyzed. Open <span className="text-zinc-300">⚙</span> to run a live AFT audit
+          with your own <span className="text-zinc-300">API key</span> — it runs in-browser and the key never
+          leaves this tab. Pre-analyzed runs show their report here automatically.
         </p>
       )}
 

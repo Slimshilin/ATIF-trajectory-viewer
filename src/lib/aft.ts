@@ -37,18 +37,15 @@ export interface AftReport {
 }
 
 export type AftEngine = 'claude' | 'codex'
-export type AftAuth = 'subscription' | 'api'
 export type AftEffort = 'minimal' | 'low' | 'medium' | 'high'
 
 export interface AftConfig {
-  /** Which agent to run the audit with. */
+  /** Which provider to run the audit with. */
   engine: AftEngine
-  /** subscription = local bridge runs the logged-in CLI; api = direct browser call. */
-  auth: AftAuth
   model: string
   effort: AftEffort
+  /** API key — kept in the browser only; the audit is a direct browser call. */
   apiKey: string
-  bridgeUrl?: string
 }
 
 export const ENGINE_MODELS: Record<AftEngine, string[]> = {
@@ -57,7 +54,6 @@ export const ENGINE_MODELS: Record<AftEngine, string[]> = {
 }
 export const ENGINE_LABEL: Record<AftEngine, string> = { claude: 'Claude Code', codex: 'Codex' }
 export const EFFORTS: AftEffort[] = ['minimal', 'low', 'medium', 'high']
-export const DEFAULT_BRIDGE_URL = 'http://localhost:8765'
 
 const THINK_BUDGET: Record<AftEffort, number> = { minimal: 0, low: 2048, medium: 6144, high: 12288 }
 
@@ -160,44 +156,6 @@ async function callOpenAI(cfg: AftConfig, prompt: string): Promise<string> {
 export async function runAft(cfg: AftConfig, prompt: string): Promise<AftReport> {
   const raw = cfg.engine === 'claude' ? await callAnthropic(cfg, prompt) : await callOpenAI(cfg, prompt)
   return parseAftReport(raw)
-}
-
-// --- subscription bridge (agentic, file-reading) ---------------------------
-
-/** Agentic prompt: vars filled, sources read from ./trial & ./task on disk. */
-export function buildAftAgenticPrompt(template: string, run: Run, task: Task, agent?: Agent, vendor?: Vendor): string {
-  return fillTemplate(template, aftVars(run, task, agent, vendor))
-}
-
-/** The ./trial + ./task files the bridge will materialize for the agent. */
-export function buildBridgeFiles(run: Run, task: Task): Record<string, string> {
-  const files: Record<string, string> = {}
-  files['trial/trajectory.json'] = JSON.stringify({ id: run.id, format: run.format, steps: run.steps }, null, 1)
-  files['trial/result.json'] = JSON.stringify(
-    { reward: run.reward, performance: run.passed ? 1 : 0, status: run.status, exception: run.failureReason ?? null,
-      score_mode: run.grade?.maxScore && run.grade.maxScore !== 1 ? 'threshold' : 'pass_fail',
-      threshold: run.grade?.maxScore ?? null, score: run.grade?.score ?? run.reward ?? null }, null, 1)
-  files['trial/test_stdout.txt'] =
-    run.grade?.summary || run.failureReason ||
-    (run.grade ? JSON.stringify(run.grade, null, 1) : '(no verifier output captured)')
-  for (const f of task.files) {
-    if (f.content != null && f.kind !== 'image') files[`task/${f.path}`] = f.content
-  }
-  if (task.instruction && !files['task/instruction.md']) files['task/instruction.md'] = task.instruction
-  return files
-}
-
-export async function runAftViaBridge(cfg: AftConfig, prompt: string, files: Record<string, string>): Promise<AftReport> {
-  const url = (cfg.bridgeUrl || DEFAULT_BRIDGE_URL).replace(/\/$/, '') + '/aft'
-  let res: Response
-  try {
-    res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, files, cli: cfg.engine, model: cfg.model, effort: cfg.effort }) })
-  } catch {
-    throw new Error(`Could not reach the local bridge at ${cfg.bridgeUrl || DEFAULT_BRIDGE_URL}. Start it with "npm run bridge".`)
-  }
-  const data = await res.json()
-  if (!res.ok || data.error) throw new Error(data.error || `bridge ${res.status}`)
-  return parseAftReport(data.raw ?? '')
 }
 
 /** Extract the last/largest JSON object from the model output. */

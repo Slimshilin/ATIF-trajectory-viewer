@@ -154,7 +154,7 @@ export default function TaskDetail() {
                         <td className="px-4 py-3 text-zinc-400">{agent?.harness ?? <span className="text-zinc-600">not reported</span>}</td>
                         <td className="px-4 py-3"><StatusBadge status={run.status} /></td>
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{fmtReward(run.reward)}</td>
-                        <td className="px-4 py-3 tabular-nums text-zinc-300">{run.steps.length}</td>
+                        <td className="px-4 py-3 tabular-nums text-zinc-300">{run.stepCount}</td>
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{run.turns}</td>
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{fmtDuration(run.durationSec)}</td>
                         <td className="px-4 py-3 text-right">

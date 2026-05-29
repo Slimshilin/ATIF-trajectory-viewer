@@ -21,9 +21,6 @@ __pycache__/
 #   3. Run: python3 scripts/ingest.py
 data/
 
-# --- AFT bridge / batch scratch ---
-.aftwork/
-
 # --- Editor / OS ---
 .DS_Store
 .idea/

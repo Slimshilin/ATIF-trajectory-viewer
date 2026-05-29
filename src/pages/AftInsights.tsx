@@ -140,25 +140,12 @@ export default function AftInsights() {
               (Impact). This page aggregates across reports once they exist.
             </p>
             <p className="mt-3">
-              Two ways to add reports:
-            </p>
-            <ul className="mt-2 list-disc pl-6 text-zinc-400">
-              <li className="mb-1">
-                Open any trajectory and click <span className="text-zinc-200">Apply AFT analysis</span> —
-                you can use your own Anthropic / OpenAI API key (browser-only,
-                never uploaded) or a local <code className="rounded bg-ink-800 px-1">claude</code> /{' '}
-                <code className="rounded bg-ink-800 px-1">codex</code> CLI via{' '}
-                <code className="rounded bg-ink-800 px-1">npm run bridge</code>.
-              </li>
-              <li className="mb-1">
-                Pre-compute a batch with{' '}
-                <code className="rounded bg-ink-800 px-1">npm run aft:batch</code>{' '}
-                — writes <code className="rounded bg-ink-800 px-1">public/aft/&lt;runId&gt;.json</code>{' '}
-                files that load automatically on every visitor session, with no key required.
-              </li>
-            </ul>
-            <p className="mt-3 text-xs text-zinc-500">
-              See <code className="rounded bg-ink-800 px-1">bridge/README.md</code> for both paths.
+              To add a report, open any trajectory and click{' '}
+              <span className="text-zinc-200">Apply AFT analysis</span> — it runs with your own
+              Anthropic / OpenAI API key directly in the browser (the key is never uploaded). The
+              result is cached locally, and any reports baked into{' '}
+              <code className="rounded bg-ink-800 px-1">public/aft/&lt;runId&gt;.json</code> load
+              automatically on every visitor session with no key required.
             </p>
           </div>
         </div>
