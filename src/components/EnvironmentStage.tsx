@@ -1,0 +1,612 @@
+import { useMemo, useState, useEffect, useRef } from 'react'
+import clsx from 'clsx'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import Markdown from './Markdown'
+import FileRenderer from './FileRenderer'
+import FileTree from './FileTree'
+import { interpretEnvironment } from '../lib/dockerfile'
+import { buildAgentFs, type FsNode } from '../lib/agentfs'
+import {
+  reconstructStage,
+  reconstructWorkspace,
+  numToCol,
+  type FileEntry,
+  type SheetState,
+  type DocState,
+  type ComputerState,
+  type ScreenshotState,
+  type WebState,
+  type AnswerState,
+  type Workspace,
+} from '../lib/stage'
+import type { FileKind, Step, Task, TaskFile } from '../lib/types'
+
+type ArtifactRef =
+  | { kind: 'sheet'; id: string; label: string }
+  | { kind: 'doc'; id: string; label: string }
+  | { kind: 'web'; id: 'web'; label: string }
+  | { kind: 'computer'; id: 'computer'; label: string }
+  | { kind: 'answer'; id: 'answer'; label: string }
+
+function baseName(p?: string) {
+  if (!p) return 'sheet'
+  return p.split('/').pop() ?? p
+}
+
+// --- Spreadsheet -----------------------------------------------------------
+
+function SpreadsheetGrid({ sheet, activeStep }: { sheet: SheetState; activeStep: number }) {
+  const rows = Math.min(sheet.maxRow + 1, 80)
+  const cols = Math.min(sheet.maxCol + 1, 32)
+  const colIdx = Array.from({ length: cols }, (_, i) => i)
+  const rowIdx = Array.from({ length: rows }, (_, i) => i)
+  return (
+    <div className="overflow-auto rounded-lg border border-ink-700 bg-ink-950">
+      <table className="border-collapse text-[12px]">
+        <thead>
+          <tr>
+            <th className="sticky left-0 top-0 z-10 w-10 border-b border-r border-ink-700 bg-ink-800" />
+            {colIdx.map((c) => (
+              <th key={c} className="min-w-[84px] border-b border-r border-ink-800 bg-ink-800 px-2 py-1 font-medium text-zinc-500">
+                {numToCol(c)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rowIdx.map((r) => (
+            <tr key={r}>
+              <td className="sticky left-0 z-10 border-b border-r border-ink-800 bg-ink-800 px-2 py-1 text-center font-medium text-zinc-500">
+                {r + 1}
+              </td>
+              {colIdx.map((c) => {
+                const ref = numToCol(c) + (r + 1)
+                const cell = sheet.cells.get(ref)
+                const fresh = cell && cell.step === activeStep
+                return (
+                  <td
+                    key={c}
+                    title={cell?.formula ? cell.formula : cell?.value}
+                    className={clsx(
+                      'max-w-[200px] truncate border-b border-r border-ink-800 px-2 py-1',
+                      cell?.formula ? 'font-mono text-sky-300' : 'text-zinc-200',
+                      fresh && 'bg-accent/25 ring-1 ring-accent/60',
+                    )}
+                  >
+                    {cell?.value}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// --- Document --------------------------------------------------------------
+
+function DocView({ doc, activeStep }: { doc: DocState; activeStep: number }) {
+  return (
+    <div className="mx-auto max-w-3xl rounded-lg border border-ink-700 bg-white/95 p-8 text-zinc-900 shadow-lg">
+      {doc.blocks.length === 0 && <p className="text-zinc-400">Empty document.</p>}
+      {doc.blocks.map((b, i) => {
+        const fresh = b.step === activeStep
+        const cls = clsx('transition-colors', fresh && 'rounded bg-yellow-200/70 px-1')
+        if (b.op === 'heading') {
+          const lvl = b.level ?? 1
+          const size = lvl <= 1 ? 'text-2xl' : lvl === 2 ? 'text-xl' : 'text-lg'
+          return <div key={i} className={clsx('mt-4 font-bold', size, cls)}>{b.text}</div>
+        }
+        return <p key={i} className={clsx('mt-2 leading-relaxed', cls)}>{b.text}</p>
+      })}
+    </div>
+  )
+}
+
+// --- Web -------------------------------------------------------------------
+
+function WebView({ web }: { web: WebState }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-ink-700 bg-white">
+      <div className="flex items-center gap-2 border-b border-zinc-300 bg-zinc-100 px-3 py-2">
+        <div className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+        </div>
+        <div className="ml-2 flex-1 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-zinc-600">
+          {web.url ?? 'about:blank'}
+        </div>
+      </div>
+      <div className="max-h-[60vh] overflow-auto bg-white px-6 py-4 text-zinc-800">
+        {web.content ? (
+          <div className="prose-sm">
+            <Markdown content={cleanFetch(web.content)} className="[&_*]:!text-zinc-800" />
+          </div>
+        ) : (
+          <p className="text-zinc-400">No page content captured.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function cleanFetch(s: string) {
+  return s.replace(/^\[Tool '[^']+' executed\.\]\n?/, '')
+}
+
+// --- Computer use ----------------------------------------------------------
+
+function ComputerView({ comp, screenshot, run }: { comp?: ComputerState; screenshot?: ScreenshotState; run: { x: number; y: number } }) {
+  const isClick = (comp?.action ?? '').includes('click')
+
+  // Real screenshot: render the image with a cursor overlay (percentage-based).
+  if (screenshot) {
+    const lx = comp?.coord ? (comp.coord[0] / run.x) * 100 : null
+    const ly = comp?.coord ? (comp.coord[1] / run.y) * 100 : null
+    return (
+      <div className="space-y-3">
+        <div className="relative mx-auto inline-block overflow-hidden rounded-lg border border-ink-700">
+          <img
+            src={screenshot.url}
+            alt="agent screen"
+            className="block max-w-full"
+            onError={(e) => {
+              const img = e.currentTarget
+              if (img.dataset.fallback) return
+              img.dataset.fallback = '1'
+              img.src =
+                'data:image/svg+xml;utf8,' +
+                encodeURIComponent(
+                  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="100%" height="100%" fill="#16181d"/><text x="50%" y="46%" fill="#71717a" font-family="sans-serif" font-size="18" text-anchor="middle">screenshot unavailable</text><text x="50%" y="56%" fill="#52525b" font-family="sans-serif" font-size="12" text-anchor="middle">the session image could not be loaded</text></svg>',
+                )
+            }}
+          />
+          {lx != null && ly != null && (
+            <>
+              {isClick && (
+                <span className="absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full bg-accent/50"
+                  style={{ left: `${lx}%`, top: `${ly}%` }} />
+              )}
+              <span className="absolute z-10 -translate-x-1/4 -translate-y-1/4 text-xl drop-shadow"
+                style={{ left: `${lx}%`, top: `${ly}%` }}>▲</span>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+          {comp?.action && <span className="chip bg-violet-500/15 text-violet-300">{comp.action}</span>}
+          {comp?.coord && <span className="font-mono text-xs text-zinc-500">({comp.coord[0]}, {comp.coord[1]})</span>}
+          {comp?.text && <span className="rounded bg-ink-800 px-2 py-0.5 font-mono text-xs text-zinc-300">typed: {comp.text}</span>}
+          <span className="text-[11px] text-zinc-600">live screenshot from the session</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Fallback: synthetic viewport (no screenshot in the export)
+  const W = 640, H = 400
+  const sx = run.x ? W / run.x : 0.5
+  const sy = run.y ? H / run.y : 0.5
+  const pt = comp?.coord ? { x: comp.coord[0] * sx, y: comp.coord[1] * sy } : null
+  return (
+    <div className="space-y-3">
+      <div className="relative mx-auto overflow-hidden rounded-lg border border-ink-700 bg-gradient-to-br from-ink-800 to-ink-950" style={{ width: W, height: H }}>
+        <div className="absolute inset-0 grid place-items-center text-xs text-zinc-600">
+          virtual desktop · no screenshot in this export
+        </div>
+        {comp?.trail.map((c, i) => (
+          <span key={i} className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/30" style={{ left: c[0] * sx, top: c[1] * sy }} />
+        ))}
+        {pt && (
+          <>
+            {isClick && <span className="absolute -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full bg-accent/40" style={{ left: pt.x, top: pt.y, width: 28, height: 28 }} />}
+            <span className="absolute z-10 -translate-x-1/2 -translate-y-1/2 text-lg" style={{ left: pt.x, top: pt.y }}>▲</span>
+          </>
+        )}
+      </div>
+      <div className="flex items-center justify-center gap-2 text-sm">
+        <span className="chip bg-violet-500/15 text-violet-300">{comp?.action ?? 'action'}</span>
+        {comp?.coord && <span className="font-mono text-xs text-zinc-500">({comp.coord[0]}, {comp.coord[1]})</span>}
+        {comp?.text && <span className="rounded bg-ink-800 px-2 py-0.5 font-mono text-xs text-zinc-300">typed: {comp.text}</span>}
+      </div>
+    </div>
+  )
+}
+
+// --- Answer ----------------------------------------------------------------
+
+function AnswerView({ answer }: { answer: AnswerState }) {
+  return (
+    <div className="mx-auto max-w-3xl rounded-lg border border-ink-700 bg-ink-950 p-6">
+      <div className="mb-2 text-xs uppercase tracking-wide text-zinc-500">Final answer / report</div>
+      <Markdown content={answer.content} />
+    </div>
+  )
+}
+
+// --- Stage shell -----------------------------------------------------------
+
+function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: number }) {
+  const stage = useMemo(() => reconstructStage(steps, activeStep), [steps, activeStep])
+
+  // bounds for computer coordinate scaling (max coord across whole run)
+  const compBounds = useMemo(() => {
+    let x = 1024, y = 768
+    for (const s of steps) {
+      for (const e of (s.edits ?? [])) {
+        if (e.t === 'computer' && e.coord) {
+          x = Math.max(x, e.coord[0]); y = Math.max(y, e.coord[1])
+        }
+      }
+    }
+    return { x: x * 1.02, y: y * 1.05 }
+  }, [steps])
+
+  const artifacts = useMemo<ArtifactRef[]>(() => {
+    const list: ArtifactRef[] = []
+    stage.sheets.forEach((s) => list.push({ kind: 'sheet', id: s.key, label: baseName(s.target) + (s.name ? ` · ${s.name}` : '') }))
+    stage.docs.forEach((d) => list.push({ kind: 'doc', id: d.key, label: d.name }))
+    if (stage.web) list.push({ kind: 'web', id: 'web', label: 'Web page' })
+    if (stage.computer || stage.screenshot)
+      list.push({ kind: 'computer', id: 'computer', label: stage.screenshot ? 'Screen' : 'Desktop' })
+    if (stage.answer) list.push({ kind: 'answer', id: 'answer', label: 'Final answer' })
+    return list
+  }, [stage])
+
+  const [selected, setSelected] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
+
+  // auto-follow: when the active step changes something, focus that artifact
+  useEffect(() => {
+    const changed = [...stage.changedAt]
+    if (!changed.length) return
+    const c = changed[0]
+    if (c.startsWith('sheet:')) setSelected('sheet:' + c.slice(6))
+    else if (c.startsWith('doc:')) setSelected('doc:' + c.slice(4))
+    else setSelected(c) // 'web' | 'computer' | 'answer'
+  }, [activeStep, stage])
+
+  if (!stage.hasVisual) {
+    return (
+      <div className="grid h-full place-items-center p-6 text-center text-xs text-zinc-600">
+        No rendered artifact yet — the agent hasn't produced a spreadsheet, document, web view, screenshot, or answer up to this step.
+      </div>
+    )
+  }
+
+  const cur =
+    artifacts.find((a) => keyFor(a) === selected) ??
+    artifacts.find((a) => stage.changedAt.has(changeKey(a))) ??
+    artifacts[0]
+
+  return (
+    <div data-tour="artifact-view" className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-ink-700 px-3 py-1.5">
+        <span className="mr-1 text-[10px] uppercase tracking-wide text-zinc-600">Artifact</span>
+        {artifacts.map((a) => {
+          const active = cur && keyFor(a) === keyFor(cur)
+          const justChanged = stage.changedAt.has(changeKey(a))
+          return (
+            <button
+              key={keyFor(a)}
+              onClick={() => setSelected(keyFor(a))}
+              className={clsx(
+                'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 transition-colors',
+                active ? `${KIND_STYLE[a.kind] ?? 'bg-ink-700 text-white ring-ink-600'}` : 'bg-ink-800 text-zinc-400 ring-transparent hover:text-zinc-200',
+              )}
+            >
+              <span className={active ? '' : 'text-zinc-500'}>{ICON[a.kind]}</span>
+              <span className="max-w-[150px] truncate">{a.label}</span>
+              {justChanged && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />}
+            </button>
+          )
+        })}
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)))} className="btn-ghost px-2 py-0.5" title="Zoom out">−</button>
+          <span className="w-10 text-center text-xs tabular-nums text-zinc-500">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.2).toFixed(2)))} className="btn-ghost px-2 py-0.5" title="Zoom in">+</button>
+          <button onClick={() => setZoom(1)} className="btn-ghost px-2 py-0.5 text-xs" title="Reset zoom">reset</button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto bg-ink-950/40 p-4">
+        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: `${100 / zoom}%` }}>
+          {cur?.kind === 'sheet' && (
+            <SpreadsheetGrid sheet={stage.sheets.find((s) => s.key === cur.id)!} activeStep={activeStep} />
+          )}
+          {cur?.kind === 'doc' && (
+            <DocView doc={stage.docs.find((d) => d.key === cur.id)!} activeStep={activeStep} />
+          )}
+          {cur?.kind === 'web' && stage.web && <WebView web={stage.web} />}
+          {cur?.kind === 'computer' && (stage.computer || stage.screenshot) && (
+            <ComputerView comp={stage.computer} screenshot={stage.screenshot} run={compBounds} />
+          )}
+          {cur?.kind === 'answer' && stage.answer && <AnswerView answer={stage.answer} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const ICON: Record<string, string> = { sheet: '▦', doc: '▤', web: '🌐', computer: '🖥', answer: '★' }
+// Distinct accent per artifact type so switching between them reads at a glance.
+const KIND_STYLE: Record<string, string> = {
+  sheet: 'bg-emerald-500/20 text-emerald-200 ring-emerald-500/40',
+  doc: 'bg-violet-500/20 text-violet-200 ring-violet-500/40',
+  web: 'bg-sky-500/20 text-sky-200 ring-sky-500/40',
+  computer: 'bg-amber-500/20 text-amber-200 ring-amber-500/40',
+  answer: 'bg-rose-500/20 text-rose-200 ring-rose-500/40',
+}
+
+function keyFor(a: ArtifactRef): string {
+  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind
+}
+function changeKey(a: ArtifactRef): string {
+  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind
+}
+
+// ===========================================================================
+// IDE workspace: file explorer (left) + terminal / conversation (right)
+// ===========================================================================
+
+function kindFromPath(path: string): FileKind {
+  const p = path.toLowerCase()
+  if (/\.(png|jpe?g|gif|svg|webp)$/.test(p)) return 'image'
+  if (/\.(md|markdown)$/.test(p)) return 'markdown'
+  if (/\.json$/.test(p)) return 'json'
+  if (/\.(html?|vue)$/.test(p)) return 'html'
+  if (/\.(diff|patch)$/.test(p)) return 'diff'
+  if (/\.(csv|tsv|xlsx|xls)$/.test(p)) return 'spreadsheet'
+  return 'code'
+}
+
+
+// Normalize FileEntry.op to the FileTree status-dot vocabulary.
+function normOp(op: string): string {
+  if (op === 'create') return 'created'
+  if (op === 'edit' || op === 'str_replace' || op === 'insert') return 'modified'
+  if (op === 'env') return 'env'
+  if (op === 'view' || op === 'touched') return 'touched'
+  return op
+}
+
+/** Foldable, icon'd file tree — same component the task page uses, so the
+ *  trajectory Human/Agent view matches it (layers, icons, status dots). */
+function FileExplorer({
+  fileList,
+  openPath,
+  onOpen,
+  emptyHint,
+}: {
+  fileList: FileEntry[]
+  openPath: string | null
+  onOpen: (p: string) => void
+  activeStep?: number
+  emptyHint?: string
+}) {
+  const treeFiles: TaskFile[] = useMemo(
+    () => fileList.map((f) => ({ path: f.path, kind: kindFromPath(f.path), content: f.content })),
+    [fileList],
+  )
+  const statusByPath = useMemo(
+    () => Object.fromEntries(fileList.map((f) => [f.path, normOp(f.op)])),
+    [fileList],
+  )
+  return (
+    <div className="flex h-full flex-col bg-ink-900/40">
+      <div className="border-b border-ink-700 px-3 py-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
+        Files ({fileList.length})
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-1">
+        {fileList.length === 0 ? (
+          <p className="px-3 py-2 text-xs leading-relaxed text-zinc-500">{emptyHint ?? 'No files yet.'}</p>
+        ) : (
+          <FileTree files={treeFiles} selected={openPath ?? undefined} onSelect={(f) => onOpen(f.path)} statusByPath={statusByPath} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Terminal({ ws, activeStep }: { ws: Workspace; activeStep: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current?.querySelector('[data-active="true"]')
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [activeStep])
+  if (ws.terminal.length === 0) {
+    return <div className="grid h-full place-items-center p-4 text-xs text-zinc-600">No tool/terminal activity yet.</div>
+  }
+  return (
+    <div ref={ref} data-tour="ide-terminal" className="h-full overflow-auto bg-ink-950 p-3 font-mono text-[12px] leading-relaxed">
+      {ws.terminal.map((e, i) => (
+        <div key={i} data-active={e.step === activeStep} className={clsx('mb-2', e.step === activeStep && 'rounded bg-accent/10 ring-1 ring-accent/30')}>
+          <div className={clsx('px-1', e.isBash ? 'text-emerald-300' : 'text-violet-300')}>
+            {e.isBash ? e.command : <span>▸ {e.command}</span>}
+          </div>
+          {e.output && (
+            <div className="whitespace-pre-wrap px-1 text-zinc-500">
+              {e.output.length > 1600 ? e.output.slice(0, 1600) + '\n…' : e.output}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const ROLE_AVATAR: Record<string, { icon: string; name: string; cls: string; bubble: string; side: 'left' | 'right' }> = {
+  user: { icon: '🧑‍💼', name: 'User', cls: 'bg-sky-500/15 ring-sky-500/30', bubble: 'rounded-tl-sm bg-sky-500/10 text-zinc-100', side: 'left' },
+  assistant: { icon: '🤖', name: 'Agent', cls: 'bg-violet-500/15 ring-violet-500/30', bubble: 'rounded-tr-sm bg-violet-500/10 text-zinc-100', side: 'right' },
+  agent: { icon: '🤖', name: 'Agent', cls: 'bg-violet-500/15 ring-violet-500/30', bubble: 'rounded-tr-sm bg-violet-500/10 text-zinc-100', side: 'right' },
+  tool: { icon: '🛠', name: 'Tool result', cls: 'bg-emerald-500/15 ring-emerald-500/30', bubble: 'rounded-tl-sm bg-emerald-500/10 text-zinc-100', side: 'left' },
+}
+
+function InteractionFlow({ ws, activeStep }: { ws: Workspace; activeStep: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    ref.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [activeStep])
+  return (
+    <div ref={ref} className="h-full space-y-3 overflow-auto p-4">
+      {ws.conversation.map((m, i) => {
+        const a = ROLE_AVATAR[m.role] ?? { icon: '•', name: m.role, cls: 'bg-ink-800 ring-ink-700', bubble: 'bg-ink-800 text-zinc-200', side: 'left' as const }
+        const isLeft = a.side === 'left'
+        const active = m.step === activeStep
+        return (
+          <div key={i} data-active={active} className={clsx('flex gap-2', isLeft ? 'flex-row' : 'flex-row-reverse')}>
+            <div className={clsx('grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm ring-1', a.cls)}>{a.icon}</div>
+            <div className={clsx('max-w-[80%] rounded-2xl px-3 py-2 text-sm', a.bubble, active && 'ring-2 ring-accent/50')}>
+              <div className={clsx('mb-0.5 text-[10px] uppercase tracking-wide text-zinc-500', !isLeft && 'text-right')}>{a.name}</div>
+              {m.content?.startsWith('→ called') ? (
+                <span className="font-mono text-xs text-violet-300">{m.content}</span>
+              ) : (
+                <div className="line-clamp-[12]"><Markdown content={m.content || '…'} /></div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      {ws.conversation.length === 0 && <p className="text-xs text-zinc-600">No conversation messages.</p>}
+    </div>
+  )
+}
+
+function FileTab({ path, content }: { path: string; content?: string }) {
+  if (!content) {
+    return (
+      <div className="grid h-full place-items-center p-4 text-center text-xs text-zinc-600">
+        <div>
+          <code className="text-zinc-400">{path}</code>
+          <div className="mt-1">No captured content — the agent referenced this file but its contents weren't recorded.</div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="h-full overflow-auto p-3">
+      <FileRenderer file={{ path, kind: kindFromPath(path), content }} />
+    </div>
+  )
+}
+
+function WorkspacePanel({ ws, activeStep, task }: { ws: Workspace; activeStep: number; task?: Task }) {
+  // right pane tab: 'terminal' | 'chat' | 'file:<path>'
+  const isConvo = ws.userTurns > 1
+  const [tab, setTab] = useState<string>(ws.terminal.length ? 'terminal' : isConvo ? 'chat' : 'terminal')
+  const [fsView, setFsView] = useState<'agent' | 'human'>('agent')
+
+  const humanFiles: FileEntry[] = useMemo(
+    () =>
+      (task?.files ?? [])
+        .filter((f) => f.content != null)
+        .map((f) => ({ path: f.path, content: f.content, step: -1, op: 'env' })),
+    [task],
+  )
+  const env = useMemo(() => (task ? interpretEnvironment(task) : null), [task])
+  const hasEnv = !!env
+  const services = useMemo(() => (env ? [...env.services.map((s) => s.name), ...(env.enabledApps ?? [])] : []), [env])
+
+  // Agent view, consistent with the task page: when the task is containerised,
+  // reconstruct the container filesystem via the Dockerfile COPY/WORKDIR rules
+  // (buildAgentFs), then overlay the files the agent actually created/modified.
+  // For non-containerised tasks we fall back to the raw seeded files + touches.
+  const touched = useMemo<FsNode[]>(
+    () =>
+      ws.files
+        .filter((f) => f.op && f.op !== 'env')
+        .map((f) => ({
+          path: f.path,
+          content: f.content,
+          status: f.op === 'create' ? 'created' : f.op === 'view' || f.op === 'touched' ? 'touched' : 'modified',
+          origin: f.path,
+        })),
+    [ws.files],
+  )
+  const agentFs = useMemo(() => (task && hasEnv ? buildAgentFs(task, touched) : null), [task, hasEnv, touched])
+  const st2op = (s: string) => (s === 'created' ? 'create' : s === 'modified' ? 'edit' : s === 'env' ? 'env' : 'touched')
+  const agentFiles: FileEntry[] = useMemo(
+    () => (agentFs ? agentFs.nodes.map((n) => ({ path: n.path, content: n.content, step: -1, op: st2op(n.status) })) : ws.files),
+    [agentFs, ws.files],
+  )
+
+  const fileList = fsView === 'agent' ? agentFiles : humanFiles
+  const agentEmptyHint = fsView === 'agent' && hasEnv && agentFiles.length === 0
+    ? `No agent filesystem to show — the Dockerfile copies no files into the container (base image “${env?.baseImage ?? ''}” provides the tree) and this run wrote none.${services.length ? ` The agent worked against services: ${services.join(', ')}.` : ''}`
+    : undefined
+  const openFile = tab.startsWith('file:') ? tab.slice(5) : null
+  const openFileEntry = openFile ? fileList.find((f) => f.path === openFile) ?? ws.files.find((f) => f.path === openFile) : null
+
+  return (
+    <PanelGroup direction="horizontal" className="h-full">
+      <Panel defaultSize={28} minSize={14}>
+        <div data-tour="ide-files" className="flex h-full flex-col">
+          <div className="flex shrink-0 items-center gap-1 border-b border-ink-700 px-2 py-1">
+            <button data-tour="ws-view-agent" onClick={() => setFsView('agent')} className={clsx('rounded px-2 py-0.5 text-[11px] font-medium', fsView === 'agent' ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200')} title="Container filesystem the agent sees">🤖 Agent</button>
+            <button data-tour="ws-view-human" onClick={() => setFsView('human')} disabled={!humanFiles.length} className={clsx('rounded px-2 py-0.5 text-[11px] font-medium disabled:opacity-30', fsView === 'human' ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200')} title="Raw task directory">👤 Human</button>
+            {services.length > 0 && (
+              <span className="ml-auto flex items-center gap-1 truncate" title="other services running alongside">
+                {services.slice(0, 3).map((s) => (
+                  <span key={s} className="rounded-full bg-ink-800 px-1.5 text-[9px] text-zinc-400">🫧 {s}</span>
+                ))}
+              </span>
+            )}
+          </div>
+          <div className="min-h-0 flex-1">
+            <FileExplorer fileList={fileList} openPath={openFile} onOpen={(p) => setTab('file:' + p)} activeStep={activeStep} emptyHint={agentEmptyHint} />
+          </div>
+        </div>
+      </Panel>
+      <PanelResizeHandle className="w-1 bg-ink-700 transition-colors hover:bg-accent/50" />
+      <Panel defaultSize={74} minSize={30}>
+        <div className="flex h-full flex-col">
+          <div className="flex shrink-0 items-center gap-1 border-b border-ink-700 px-2 py-1">
+            <TabBtn active={tab === 'terminal'} onClick={() => setTab('terminal')}>Terminal</TabBtn>
+            {isConvo && <TabBtn active={tab === 'chat'} onClick={() => setTab('chat')}>Conversation</TabBtn>}
+            {openFile && (
+              <TabBtn active onClick={() => {}}>
+                <span className="max-w-[160px] truncate">{openFile.split('/').pop()}</span>
+                <span onClick={(e) => { e.stopPropagation(); setTab(ws.terminal.length ? 'terminal' : 'chat') }} className="ml-1 text-zinc-500 hover:text-white">×</span>
+              </TabBtn>
+            )}
+          </div>
+          <div className="min-h-0 flex-1">
+            {tab === 'terminal' && <Terminal ws={ws} activeStep={activeStep} />}
+            {tab === 'chat' && <InteractionFlow ws={ws} activeStep={activeStep} />}
+            {openFile && <FileTab path={openFile} content={openFileEntry?.content} />}
+          </div>
+        </div>
+      </Panel>
+    </PanelGroup>
+  )
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        'flex items-center rounded px-2.5 py-1 text-xs font-medium transition-colors',
+        active ? 'bg-ink-800 text-white' : 'text-zinc-500 hover:text-zinc-200',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default function EnvironmentStage({ steps, activeStep, task }: { steps: Step[]; activeStep: number; task?: Task }) {
+  const ws = useMemo(() => reconstructWorkspace(steps, activeStep, task?.files), [steps, activeStep, task])
+  return (
+    <PanelGroup direction="vertical" className="h-full" autoSaveId="stage-vertical">
+      <Panel defaultSize={52} minSize={18}>
+        <WorkspacePanel ws={ws} activeStep={activeStep} task={task} />
+      </Panel>
+      <PanelResizeHandle className="h-1 bg-ink-700 transition-colors hover:bg-accent/50" />
+      <Panel defaultSize={48} minSize={15}>
+        <ArtifactViewer steps={steps} activeStep={activeStep} />
+      </Panel>
+    </PanelGroup>
+  )
+}

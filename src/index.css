@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-ink-950 text-zinc-200 antialiased;
+    background-image: radial-gradient(60rem 60rem at 120% -10%, rgba(124, 140, 255, 0.06), transparent 60%);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-ink-900/80 shadow-sm shadow-black/20 backdrop-blur-sm;
+  }
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors;
+  }
+  .btn-ghost {
+    @apply btn text-zinc-300 hover:bg-ink-800 hover:text-white;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white shadow-sm shadow-accent/30 hover:bg-accent-soft;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full;
+  background: #2c313d;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4150;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* highlight.js — Tokyo-night-ish palette tuned to the app theme       */
+/* ------------------------------------------------------------------ */
+.hljs { color: #c0caf5; }
+.hljs-comment,
+.hljs-quote { color: #5a6385; font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section { color: #bb9af7; }
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string { color: #9ece6a; }
+.hljs-number,
+.hljs-deletion { color: #ff9e64; }
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-built_in { color: #7aa2f7; }
+.hljs-class .hljs-title,
+.hljs-type,
+.hljs-title.class_ { color: #2ac3de; }
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-pseudo { color: #7dcfff; }
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-name { color: #73daca; }
+.hljs-meta,
+.hljs-comment.hljs-doctag { color: #6c7394; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+/* ------------------------------------------------------------------ */
+/* driver.js guided tour — dark popover matching the app theme         */
+/* ------------------------------------------------------------------ */
+.driver-popover.tour-pop {
+  background: #14161d;
+  color: #e4e4e7;
+  border: 1px solid #272b36;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  max-width: 340px;
+}
+.driver-popover.tour-pop .driver-popover-title { color: #fff; font-size: 14px; }
+.driver-popover.tour-pop .driver-popover-description { color: #a1a1aa; font-size: 13px; line-height: 1.5; }
+.driver-popover.tour-pop .driver-popover-progress-text { color: #6b7280; }
+.driver-popover.tour-pop .driver-popover-arrow { border-color: #14161d; }
+.driver-popover.tour-pop button {
+  background: #1a1d25;
+  color: #d4d4d8;
+  border: 1px solid #272b36;
+  border-radius: 8px;
+  text-shadow: none;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.driver-popover.tour-pop button:hover { background: #272b36; color: #fff; }
+.driver-popover.tour-pop .driver-popover-next-btn { background: #7c8cff; border-color: #7c8cff; color: #fff; }
+.driver-popover.tour-pop .driver-popover-next-btn:hover { background: #5566d6; }
+/* "Skip tour" sits at the far left of the footer; nav buttons stay right. */
+.driver-popover.tour-pop .driver-skip-btn { margin-right: auto; opacity: 0.7; }
+.driver-popover.tour-pop .driver-skip-btn:hover { opacity: 1; }

@@ -1,0 +1,31 @@
+# --- Node / Vite ---
+node_modules/
+dist/
+.vite/
+*.local
+*.tsbuildinfo
+
+# --- Python ingest tooling ---
+__pycache__/
+*.pyc
+.venv/
+.python-version
+
+# --- Source data (downloaded by scripts/ingest.py) ---
+# The viewer is data-agnostic. To regenerate public/dataset.json:
+#   1. Clone Terminal-Bench 2.1:
+#        git clone --depth 1 https://github.com/harbor-framework/terminal-bench-2-1.git data/terminal-bench-2-1
+#   2. Download public trajectories from HuggingFace:
+#        huggingface-cli download yoonholee/terminalbench-trajectories --repo-type dataset \
+#          --local-dir data/hf-cache --include 'data/*.parquet'
+#   3. Run: python3 scripts/ingest.py
+data/
+
+# --- AFT bridge / batch scratch ---
+.aftwork/
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
