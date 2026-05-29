@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Ingest a curated subset of the Harbor-Index annotate bundle into
-`public/dataset.json`, and promote the bundle's pre-computed audit reports
-into `public/aft/`.
+"""Ingest two complementary task sources into `public/dataset.json` and
+promote any shipped audit reports into `public/aft/`.
 
-The Harbor-Index bundle ships, per task, the full Harbor task directory
-(task.toml + instruction.md + environment/ + solution/ + tests/) plus a
-single trial under `jobs/<trial>/{agent/trajectory.json, result.json,
-audits/*.report.json}`. The audit reports are already in AFT v1.0 shape
-(outcome / failure_modes / reward_hacking / task_quality), so we copy one
-per task straight to `public/aft/<runId>.json` for the viewer's AFT panel.
+Source A — Terminal-Bench 2.1 (Apache-2.0)
+  • Task definitions cloned from
+      data/terminal-bench-2-1/tasks/<name>/
+    (the harbor-framework/terminal-bench-2-1 repo).
+  • Trajectories fetched LAZILY from the official leaderboard repo
+    `harborframework/terminal-bench-2-leaderboard` on HuggingFace,
+    one trial at a time, cached under data/hf-leaderboard-cache/.
+  • The leaderboard repo ships no audit JSONs, so these runs start
+    without a pre-computed AFT report — visitors can generate one
+    in-browser or via the bridge.
 
-Input:
-  - data/harbor-annotate-bundle/<task>/...     (gitignored; the
-    harbor-annotate-bundle.zip extracted into data/ at this path)
+Source B — Harbor-Index annotate bundle (Apache-2.0)
+  • Full Harbor directories + one trial each + pre-computed audits
+    under data/harbor-annotate-bundle/<task>/ (gitignored; the
+    user's harbor-annotate-bundle.zip extracted at this path).
+  • The audit reports are already in AFT v1.0 shape, so we copy
+    one per task to public/aft/<runId>.json — these runs show
+    "✦ Pre-analyzed" immediately, no key or bridge required.
 
 Output:
   - public/dataset.json
@@ -22,19 +29,46 @@ Run from the repo root:
     python3 scripts/ingest.py
 """
 from __future__ import annotations
-import base64, glob, json, mimetypes, os, re
+import base64, glob, json, mimetypes, os, re, time
+import urllib.request, urllib.error
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
+TB_TASKS = os.path.join(ROOT, "data", "terminal-bench-2-1", "tasks")
+HF_CACHE = os.path.join(ROOT, "data", "hf-leaderboard-cache")
 BUNDLE = os.path.join(ROOT, "data", "harbor-annotate-bundle")
 OUT = os.path.join(ROOT, "public", "dataset.json")
 AFT_DIR = os.path.join(ROOT, "public", "aft")
 
-# Curated picks — span categories: spreadsheet, web/search, vision, code-fix,
-# scientific reasoning, ML, transpilation, performance. Each task has 1 trial
-# with a full ATIF trajectory and 15 pre-computed audit reports.
-TASK_PICKS = [
+# --- Source A: TB 2.1 --------------------------------------------------------
+TB_API = "https://huggingface.co/api/datasets/harborframework/terminal-bench-2-leaderboard"
+TB_FILE = "https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard/resolve/main"
+
+# One agent/model pair per major model family — all confirmed to ship full
+# `agent/trajectory.json` ATIF logs.
+TB_AGENTS = [
+    "Judy__Claude-Opus-4.6",                   # Anthropic (Judy harness)
+    "CodeBrain-1__GPT-5.3-Codex",              # OpenAI    (CodeBrain harness)
+    "Gemini_CLI__Gemini-3.1-Pro-Preview",      # Google    (Gemini CLI harness)
+    "ClaudeCode__GLM-4.7",                     # Z-AI GLM  (Claude Code harness)
+]
+
+TB_TASK_PICKS = [
+    "adaptive-rejection-sampler",
+    "break-filter-js-from-html",
+    "build-cython-ext",
+    "cancel-async-tasks",
+    "chess-best-move",
+    "configure-git-webserver",
+    "count-dataset-tokens",
+    "crack-7z-hash",
+    "compile-compcert",
+    "cobol-modernization",
+]
+
+# --- Source B: Harbor-Index annotate bundle ---------------------------------
+HI_TASK_PICKS = [
     "spreadsheetbench-sort-spreadsheet-by-helper",   # spreadsheet stage
     "widesearch-list-bri-projects-2025",             # web search + emails
     "gaia-find-chess-winning-move",                  # reasoning + tools
@@ -174,6 +208,34 @@ def image_data_uri(path: str, max_bytes: int = 2_000_000) -> str | None:
         return None
 
 
+SHEET_DELIM = "@@SHEET:"  # marker the frontend's SpreadsheetView understands
+
+
+def xlsx_to_csv(path: str, max_sheets: int = 12, max_rows: int = 500, max_cols: int = 60) -> str | None:
+    """Convert an .xlsx workbook to multi-sheet CSV using `@@SHEET:<name>@@`
+    separators so the viewer's SpreadsheetView renders one tab per sheet."""
+    try:
+        import openpyxl  # type: ignore
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return None
+    blocks: list[str] = []
+    for ws in wb.worksheets[:max_sheets]:
+        rows: list[str] = []
+        for r in ws.iter_rows(max_row=max_rows, max_col=max_cols, values_only=True):
+            cells = ["" if v is None else str(v).replace("\n", " ")[:120] for v in r]
+            while cells and cells[-1] == "":
+                cells.pop()
+            rows.append(",".join(
+                '"%s"' % c.replace('"', '""') if ("," in c or '"' in c) else c for c in cells
+            ))
+        while rows and not rows[-1]:
+            rows.pop()
+        blocks.append(f"{SHEET_DELIM}{ws.title}@@\n" + "\n".join(rows))
+    wb.close()
+    return "\n".join(blocks) if blocks else None
+
+
 SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
 
 
@@ -193,7 +255,15 @@ def collect_files(root: str, base: str) -> list[dict]:
                 uri = image_data_uri(full)
                 if uri: rec["content"] = uri
                 else: rec["note"] = "image too large to inline"
-            elif ext in (".xlsx", ".xls", ".zip", ".tar", ".gz", ".pyc"):
+            elif ext == ".xlsx":
+                # Render workbook → CSV-with-sheet-markers so SpreadsheetView
+                # shows the grid in the task page.
+                content = xlsx_to_csv(full)
+                if content:
+                    rec["content"] = content
+                else:
+                    rec["note"] = "xlsx could not be parsed"
+            elif ext in (".xls", ".zip", ".tar", ".gz", ".pyc"):
                 try: size = os.path.getsize(full)
                 except: size = 0
                 rec["kind"] = "text"
@@ -370,10 +440,148 @@ def pick_audit(audit_dir: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Main loader.
+# Source A: Terminal-Bench 2.1 — task defs from the cloned repo, trajectories
+# pulled lazily from the official leaderboard HF dataset.
 # ---------------------------------------------------------------------------
 
-def load_task(task_name: str) -> bool:
+def _hf_get(url: str, retries: int = 3, timeout: int = 30) -> bytes:
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json, */*"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"HF fetch failed after {retries} attempts: {url} — {last_err}")
+
+
+def hf_tree(rel_path: str) -> list[dict]:
+    raw = _hf_get(f"{TB_API}/tree/main/{rel_path}")
+    return json.loads(raw.decode("utf-8"))
+
+
+def hf_file_cached(rel_path: str) -> bytes:
+    cache_p = os.path.join(HF_CACHE, rel_path)
+    if os.path.isfile(cache_p):
+        return open(cache_p, "rb").read()
+    os.makedirs(os.path.dirname(cache_p), exist_ok=True)
+    raw = _hf_get(f"{TB_FILE}/{rel_path}")
+    with open(cache_p, "wb") as f:
+        f.write(raw)
+    return raw
+
+
+def _tb_pretty(name: str) -> str:
+    return name.replace("-", " ").title()
+
+
+def load_tb_tasks(picks: list[str]) -> None:
+    vid = vendor("Terminal-Bench 2.1")
+    if not os.path.isdir(TB_TASKS):
+        print(f"  ! TB tasks dir missing: {TB_TASKS} — clone the repo first")
+        return
+    for name in picks:
+        tdir = os.path.join(TB_TASKS, name)
+        if not os.path.isdir(tdir):
+            print(f"  ! task missing on disk: {name}")
+            continue
+        instr = read_text(os.path.join(tdir, "instruction.md"))
+        toml_text = read_text(os.path.join(tdir, "task.toml")) or ""
+        meta = task_toml_meta(toml_text)
+        files = collect_files(tdir, tdir)
+        tasks.append({
+            "id": slug(f"tb-{name}"),
+            "vendorId": vid,
+            "title": _tb_pretty(name),
+            "source": "harbor",
+            "category": meta.get("category", "Terminal-Bench"),
+            "difficulty": meta.get("difficulty", "medium"),
+            "instruction": instr,
+            "files": files,
+            "metadata": {"tb_task_name": name, "tb_version": "2.1",
+                         "tags": meta.get("tags", [])},
+        })
+
+
+def _tb_load_one_trial(agent_dir: str, date_dir: str, trial_rel: str,
+                       task_name: str, vid: str) -> bool:
+    base = f"submissions/terminal-bench/2.0/{agent_dir}/{date_dir}/{trial_rel}"
+    try:
+        result = json.loads(hf_file_cached(f"{base}/result.json"))
+    except Exception:
+        return False
+    cfg_agent = ((result.get("config") or {}).get("agent")) or {}
+    harness = cfg_agent.get("name") or agent_dir.split("__")[0]
+    model = cfg_agent.get("model_name") or agent_dir.split("__", 1)[-1]
+    aid = agent(harness, model, vid)
+    reward = ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward")
+    passed = reward is not None and float(reward) >= 0.999
+    started = result.get("started_at")
+    finished = result.get("finished_at")
+    exc = result.get("exception_info")
+    try:
+        traj = json.loads(hf_file_cached(f"{base}/agent/trajectory.json"))
+    except Exception:
+        return False
+    raw_steps = traj.get("steps") or []
+    steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
+    tid = slug(f"tb-{task_name}")
+    runs.append({
+        "id": slug(f"tb-{trial_rel}-{harness}-{model}"),
+        "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
+        "status": "passed" if passed else ("failed" if reward is not None else "completed"),
+        "passed": passed, "reward": reward,
+        "steps": steps, "stepCount": len(steps),
+        "artifacts": run_artifacts(steps),
+        "turns": sum(1 for s in steps if s["role"] == "agent"),
+        "durationSec": iso_duration(started, finished),
+        "tokens": None,
+        "grade": {
+            "score": reward, "maxScore": 1.0, "subscores": [],
+            "summary": f"{harness} · {model} · trial {trial_rel}",
+            "gate": None, "breakdown": None, "findings": None,
+        },
+        "failureReason": (str(exc)[:400] if exc else None),
+    })
+    return True
+
+
+def load_tb_leaderboard(picks: list[str]) -> int:
+    vid = vendor("Terminal-Bench 2.1")
+    picked = 0
+    for agent_dir in TB_AGENTS:
+        try:
+            top = hf_tree(f"submissions/terminal-bench/2.0/{agent_dir}")
+        except Exception as e:
+            print(f"  agent {agent_dir}: tree fetch failed ({e})")
+            continue
+        date_subdirs = [os.path.basename(e["path"]) for e in top
+                        if e["type"] == "directory" and not e["path"].endswith(".DS_Store")]
+        if not date_subdirs:
+            continue
+        date_dir = sorted(date_subdirs)[0]
+        try:
+            trial_entries = hf_tree(f"submissions/terminal-bench/2.0/{agent_dir}/{date_dir}")
+        except Exception:
+            continue
+        trial_names = [os.path.basename(t["path"]) for t in trial_entries if t["type"] == "directory"]
+        for task in picks:
+            match = next((n for n in trial_names if n.startswith(f"{task}__")), None)
+            if not match:
+                continue
+            if _tb_load_one_trial(agent_dir, date_dir, match, task, vid):
+                picked += 1
+    return picked
+
+
+# ---------------------------------------------------------------------------
+# Source B: Harbor-Index annotate bundle — full task dirs + 1 trial each +
+# pre-computed audit reports.
+# ---------------------------------------------------------------------------
+
+def load_hi_task(task_name: str) -> bool:
     tdir = os.path.join(BUNDLE, task_name)
     if not os.path.isdir(tdir):
         print(f"  ! task missing on disk: {task_name}")
@@ -495,11 +703,19 @@ def main() -> None:
             if fn.endswith(".json"):
                 os.remove(os.path.join(AFT_DIR, fn))
 
-    print(f"=== Harbor-Index curated bundle ({len(TASK_PICKS)} tasks) ===")
-    for t in TASK_PICKS:
-        load_task(t)
-    print(f"  loaded tasks: {len(tasks)}")
-    print(f"  loaded runs:  {len(runs)}")
+    print(f"=== Source A: Terminal-Bench 2.1 ({len(TB_TASK_PICKS)} tasks) ===")
+    load_tb_tasks(TB_TASK_PICKS)
+    print(f"  tasks loaded: {sum(1 for t in tasks if t['vendorId']=='terminal-bench-2-1')}")
+    print(f"  fetching trajectories from the leaderboard (lazy, cached)…")
+    tb_runs = load_tb_leaderboard(TB_TASK_PICKS)
+    print(f"  TB trajectories: {tb_runs}")
+
+    print()
+    print(f"=== Source B: Harbor-Index annotate bundle ({len(HI_TASK_PICKS)} tasks) ===")
+    for t in HI_TASK_PICKS:
+        load_hi_task(t)
+    print(f"  HI tasks: {sum(1 for t in tasks if t['vendorId']=='harbor-index')}")
+    print(f"  total runs: {len(runs)}")
 
     # Rebuild AFT index.
     os.makedirs(AFT_DIR, exist_ok=True)
@@ -509,15 +725,30 @@ def main() -> None:
     print(f"  promoted AFT reports: {len(aft_ids)}")
 
     for v in vendors.values():
-        if v["id"] == "harbor-index":
+        if v["id"] == "terminal-bench-2-1":
             v["coverage"] = (
-                f"{len(TASK_PICKS)} curated tasks from the Harbor-Index annotate "
-                f"bundle — each ships its full task directory (task.toml + "
-                f"instruction.md + environment + tests + solution), one trial's "
-                f"ATIF trajectory under jobs/<trial>/agent/trajectory.json, and a "
-                f"pre-computed AFT v1.0 audit report. The picks span spreadsheet "
-                f"manipulation, web search, visual reasoning, SWE bug fixes, "
-                f"language transpilation, scientific analysis, and python "
+                f"{len(TB_TASK_PICKS)} of 89 Terminal-Bench 2.1 task definitions "
+                f"cloned from the canonical source (harbor-framework/terminal-bench-2-1, "
+                f"Apache-2.0). Each task ships its full instruction.md, "
+                f"environment/Dockerfile, tests, and oracle solution. Trajectories "
+                f"are pulled from the official harborframework/terminal-bench-2-leaderboard "
+                f"dataset on HuggingFace (Apache-2.0) — one trial per agent harness "
+                f"across four families (Anthropic, OpenAI, Google, Z-AI). Files are "
+                f"fetched lazily over HTTP and cached under data/hf-leaderboard-cache/ "
+                f"(gitignored). These runs ship NO pre-computed AFT reports — apply "
+                f"AFT in-browser with your own API key, or via the local bridge."
+            )
+        elif v["id"] == "harbor-index":
+            v["coverage"] = (
+                f"{len(HI_TASK_PICKS)} curated tasks from the Harbor-Index annotate "
+                f"bundle (Apache-2.0) — each ships its full task directory "
+                f"(task.toml + instruction.md + environment + tests + solution), one "
+                f"trial's ATIF trajectory under jobs/<trial>/agent/trajectory.json, "
+                f"and a pre-computed AFT v1.0 audit report (promoted automatically "
+                f"to public/aft/<runId>.json at ingest time, so the viewer shows "
+                f"'✦ Pre-analyzed' on every run with no key or bridge). Picks span "
+                f"spreadsheet manipulation, web search, visual reasoning, SWE bug "
+                f"fixes, language transpilation, scientific analysis, and python "
                 f"performance — exercising every viewer feature."
             )
 

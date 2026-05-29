@@ -112,30 +112,93 @@ You are working inside a tiny demo container. Complete all four parts:
 The toy grader checks: cell accuracy, dashboard freshness, recap completeness,
 and basic formatting.`
 
+const TASK_TOML = `# Toy task.toml — purely illustrative, all values fabricated for the tour.
+schema_version = "1.0"
+
+[task]
+name = "tour/acmedemo-widget-sales"
+authors = [{ name = "ATIF Trajectory Viewer demo" }]
+keywords = ["tour", "demo", "synthetic"]
+
+[metadata]
+difficulty = "easy"
+category = "tour-demo"
+
+[verifier]
+timeout_sec = 60.0
+
+[agent]
+timeout_sec = 300.0
+
+[environment]
+build_timeout_sec = 60.0
+`
+
 const DOCKERFILE = `# Toy demo image — not used in production
 FROM python:3.11-slim
 WORKDIR /app
-COPY workspace/ /app/
+COPY data/ /app/data/
+COPY README.md /app/
 RUN pip install --no-cache-dir pandas openpyxl requests
-CMD ["python", "analysis/build_sheet.py"]`
+CMD ["python", "/app/run.py"]
+`
 
-const COMPOSE = `# Toy compose — illustrative only, all hostnames are demo-local
-services:
-  app:
-    build: .
-    working_dir: /app
-    depends_on: [demo-dashboard]
-  demo-dashboard:
-    image: nginx:alpine
-    ports: ["8091:80"]`
+const TEST_SH = `#!/usr/bin/env bash
+# Toy verifier (demo only) — checks the AcmeDemo widget sheet exists and the
+# Q4 grand total matches the live dashboard figure ($1,902.10).
+set -euo pipefail
+xlsx="/app/widget_sales.xlsx"
+[ -f "$xlsx" ] || { echo "FAIL: $xlsx not built"; exit 1; }
+total="$(python3 -c "import openpyxl, sys; wb=openpyxl.load_workbook('$xlsx', data_only=True); print(wb.active['E6'].value)" 2>/dev/null || true)"
+if [ "$total" = "1902.10" ]; then
+  echo "PASS: live total matches dashboard"; exit 0
+fi
+echo "FAIL: total=$total (expected 1902.10 — did the agent use the live demo dashboard?)"
+exit 1
+`
+
+const SOLVE_SH = `#!/usr/bin/env bash
+# Toy oracle solution (demo only) — what a passing agent would do.
+set -euo pipefail
+curl -sf http://demo-dashboard.local/q4 -o /tmp/q4.html
+python3 <<'PY'
+import openpyxl, pandas as pd
+df = pd.read_csv('/app/data/widget_sales.csv')
+df['units'] = df[['oct','nov','dec']].sum(axis=1)
+df['total'] = df['units'] * df['unit_price']
+wb = openpyxl.Workbook(); ws = wb.active; ws.title = 'Q4'
+ws.append(['Widget', 'Oct', 'Nov', 'Dec', 'Total ($)'])
+for _, r in df.iterrows():
+    ws.append([r['widget'], r['oct'], r['nov'], r['dec'], round(r['total'], 2)])
+# Use the LIVE figure, not the CSV sum — this is the gotcha the verifier checks.
+ws.append(['TOTAL', '', '', '', 1902.10])
+wb.save('/app/widget_sales.xlsx')
+PY
+`
+
+const README_MD = `# AcmeDemo workspace (toy demo)
+
+This tree is purely illustrative — every value is fabricated for the viewer
+tour. Run \`python /app/run.py\` to (in this fiction) build the sales sheet.
+`
+
+const RUBRIC_MD = `# Toy evaluation rubric (demo)
+
+- Cell accuracy — 40%
+- Dashboard freshness (use the live figure) — 25%
+- Recap completeness — 25%
+- Formatting (bold totals, units) — 10%
+`
 
 const files: Task['files'] = [
-  { path: 'Dockerfile', kind: 'code', language: 'docker', content: DOCKERFILE },
-  { path: 'docker-compose.yml', kind: 'code', language: 'yaml', content: COMPOSE },
-  { path: 'workspace/README.md', kind: 'markdown', content: '# AcmeDemo workspace (toy demo)\n\nThis tree is purely illustrative — every value is fabricated for the viewer tour.\nRun `python analysis/build_sheet.py` to (in this fiction) build the sales sheet.\n' },
-  { path: 'workspace/data/widget_sales.csv', kind: 'text', content: 'widget,oct,nov,dec,unit_price\nWidget-A,12,14,18,9.99\nWidget-B,8,11,13,14.50\nWidget-C,21,19,24,4.25\nWidget-D,6,7,9,29.99' },
-  { path: 'workspace/analysis/build_sheet.py', kind: 'code', language: 'python', content: '# Toy stub — the agent fills this in during the demo trajectory.\nimport pandas as pd\n\ndef build_sales_sheet(df):\n    """total = sum(oct..dec) * unit_price."""\n    raise NotImplementedError\n' },
-  { path: 'workspace/RUBRIC.md', kind: 'markdown', content: '# Toy evaluation rubric (demo)\n\n- Cell accuracy — 40%\n- Dashboard freshness (use the live figure) — 25%\n- Recap completeness — 25%\n- Formatting (bold totals, units) — 10%\n' },
+  { path: 'task.toml', kind: 'text', language: 'toml', content: TASK_TOML },
+  { path: 'instruction.md', kind: 'markdown', content: INSTRUCTION },
+  { path: 'environment/Dockerfile', kind: 'code', language: 'docker', content: DOCKERFILE },
+  { path: 'environment/README.md', kind: 'markdown', content: README_MD },
+  { path: 'environment/data/widget_sales.csv', kind: 'text', content: 'widget,oct,nov,dec,unit_price\nWidget-A,12,14,18,9.99\nWidget-B,8,11,13,14.50\nWidget-C,21,19,24,4.25\nWidget-D,6,7,9,29.99' },
+  { path: 'environment/RUBRIC.md', kind: 'markdown', content: RUBRIC_MD },
+  { path: 'tests/test.sh', kind: 'code', language: 'bash', content: TEST_SH },
+  { path: 'solution/solve.sh', kind: 'code', language: 'bash', content: SOLVE_SH },
 ]
 
 const task: Task = {

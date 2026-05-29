@@ -214,6 +214,9 @@ export function startTour(steps: TStep[], navigate: (p: string) => void) {
         prevBtnText: '← Back',
         onNextClick: () => { if (i < total - 1) { i++; render() } else d.destroy() },
         onPrevClick: () => { if (i > 0) { i--; render() } },
+        // driver.js needs an explicit close handler whenever other on*Click
+        // handlers are set — without this, the ✕ corner button is dead.
+        onCloseClick: () => d.destroy(),
       },
     })
   }
