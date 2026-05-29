@@ -144,7 +144,7 @@ def model_family(raw):
     if "kimi" in s or "moonshot" in s: return "Moonshot"
     if "glm" in s or "z-ai" in s: return "Z-AI"
     if "minimax" in s: return "MiniMax"
-    if "hy3" in s or "tencent" in s: return "Tencent Hunyuan"
+    if "hy3" in s or "hunyuan" in s: return "Hunyuan"
     if "mimo" in s: return "MiMo"
     return "unknown"
 
