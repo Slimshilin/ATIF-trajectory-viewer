@@ -2,12 +2,24 @@
 
 **Live demo → https://atif-trajectory-viewer.vercel.app/**
 
-A static, browser-only viewer for **Harbor-formatted agent tasks** and
-**ATIF agent trajectories**. Open a task, replay the run like a film, and
-diagnose failures with a structured taxonomy. No backend, no login, no
-upload — everything runs in your tab.
+As agent trajectories become longer, multi-modal, multi-turn, and more
+difficult to comprehend and analyze, we need better visualization. This repo
+serves as a demo for a **trajectory viewer, analyzer, and annotator** platform
+for Harbor-format tasks and ATIF agent trajectories. Source code and sample
+[Terminal-Bench](https://www.tbench.ai/) and [Harbor Adapter](https://www.harborframework.com/docs/datasets/adapters-human)
+tasks are provided to show features. You are welcome to use, refer to, or
+build on top of the repo to optimize your own agent-trajectory visualization.
+
+A static, browser-only React + Vite app — no backend, no login, no upload;
+everything runs in your tab.
 
 > A video walkthrough will land here soon.
+
+> **Known limitations.** Not all features are perfectly implemented — e.g. the
+> reconstructed agent-view of the container filesystem is inferred from the
+> trajectory's tool calls and is not always faithful, and the example Agent
+> Failure Taxonomy will not apply cleanly to every scenario. Treat the audit
+> output as a first pass, not a verdict.
 
 ## What's bundled
 
@@ -73,7 +85,7 @@ Inline: *Lin Shi, ATIF Trajectory Viewer, 2026. https://github.com/Slimshilin/AT
 Built by [**Lin Shi** (Slimshilin)](https://github.com/Slimshilin) — core
 contributor to [**Terminal-Bench**](https://www.tbench.ai/) and
 [**Harbor**](https://www.harborframework.com/), leading the
-[Harbor Adapter Team](https://github.com/harbor-framework).
+[Harbor Adapter Team](https://www.harborframework.com/docs/datasets/adapters-human).
 
 ## License
 
