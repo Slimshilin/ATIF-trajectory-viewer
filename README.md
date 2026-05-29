@@ -158,6 +158,29 @@ Import the repo, the build (`npm run build`, output `dist`) is detected
 automatically. `vercel.json` adds the SPA rewrite. `public/dataset.json` is
 shipped as a static asset.
 
+## Usage analytics (optional)
+
+Two opt-in tracking layers are wired up; both **no-op out of the box** so
+forks aren't tied to anyone else's account.
+
+### Vercel Web Analytics
+
+Already wired in `src/main.tsx` via `@vercel/analytics/react`. To turn it on
+for your deploy: **Vercel → Project → Analytics → Enable**. The package
+sends nothing on local dev or on non-Vercel hosts.
+
+### Google Analytics 4
+
+Set `VITE_GA_ID` in your host's environment variables (or `.env.local`
+locally) to your GA4 measurement ID (`G-XXXXXXXXXX`) and redeploy. The
+loader in `src/lib/analytics.ts` injects gtag, and `App.tsx`'s
+`RouteTracker` fires a `page_view` event on every SPA route change. With no
+ID set, nothing is loaded.
+
+`trackEvent(name, params)` in `src/lib/analytics.ts` is available for
+custom events — wire it up where you want richer behaviour data (e.g.
+tour-start, AFT-applied, upload-completed).
+
 ## License
 
 Apache-2.0. The Terminal-Bench 2.1 task definitions
