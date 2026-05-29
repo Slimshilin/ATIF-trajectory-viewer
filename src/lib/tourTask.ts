@@ -76,9 +76,14 @@ const SVG_EXCEL_CONFIRM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
   <text x="14" y="450" font-size="11" fill="white">Sheet1 · T12 · Expenses        Verified</text>
 </svg>`
 
-// btoa is available in every browser; SSR isn't a concern (Vite ships SPA bundles).
-const SHOT_A = `data:image/svg+xml;base64,${btoa(SVG_EXCEL_OPEN)}`
-const SHOT_B = `data:image/svg+xml;base64,${btoa(SVG_EXCEL_CONFIRM)}`
+// Encode a Unicode string as base64 — `btoa` only accepts Latin1, but our SVG
+// mockups include em-dashes and other non-Latin1 glyphs. We URL-encode first,
+// then unescape to a Latin1-safe byte stream, then base64.
+function utf8b64(s: string): string {
+  return btoa(unescape(encodeURIComponent(s)))
+}
+const SHOT_A = `data:image/svg+xml;base64,${utf8b64(SVG_EXCEL_OPEN)}`
+const SHOT_B = `data:image/svg+xml;base64,${utf8b64(SVG_EXCEL_CONFIRM)}`
 
 const vendor: Vendor = { id: TOUR_VENDOR_ID, name: 'Guided Tour (synthetic)' }
 

@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import App from './App'
 import { DatasetProvider } from './lib/dataset'
 import { AuthProvider } from './lib/auth'
@@ -18,8 +19,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <DatasetProvider>
           <App />
-          {/* Vercel Web Analytics — active on the Vercel deploy only; no-ops elsewhere. */}
+          {/* Vercel Web Analytics + Speed Insights — active on the Vercel deploy
+              only; both no-op elsewhere. Web Analytics needs Project → Analytics
+              → Enable; Speed Insights needs Project → Speed Insights → Enable. */}
           <Analytics />
+          <SpeedInsights />
         </DatasetProvider>
       </AuthProvider>
     </BrowserRouter>
