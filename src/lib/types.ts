@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Normalized domain types. Produced by scripts/ingest.py from real vendor data
-// (ATIF trajectories, Snorkel rollouts, Harbor task dirs) into public/dataset.json.
+// (ATIF trajectories, Harbor task dirs, OpenAI-messages rollouts) into public/dataset.json.
 // ---------------------------------------------------------------------------
 
 export type RunFormat = 'atif' | 'snorkel' | 'harbor' | 'fleet'
