@@ -3,9 +3,9 @@
 **Live demo → https://atif-trajectory-viewer.vercel.app/**
 
 A static, browser-only viewer for **Harbor-formatted agent tasks** and
-**ATIF agent trajectories**. Open a task, replay the run like a film,
-diagnose failures with a structured taxonomy, or drop in your own data.
-No backend, no login, no upload — everything runs in your tab.
+**ATIF agent trajectories**. Open a task, replay the run like a film, and
+diagnose failures with a structured taxonomy. No backend, no login, no
+upload — everything runs in your tab.
 
 > A video walkthrough will land here soon.
 
@@ -17,25 +17,40 @@ No backend, no login, no upload — everything runs in your tab.
 
 ## Features
 
-1. **Agent view ⇄ Human view.** Browse the raw task directory (`task.toml`, `instruction.md`, `environment/`, `tests/`, `solution/`) or switch to the container filesystem the agent sees, reconstructed by parsing every tool call — `Write` / `Edit` / `apply_patch` AND shell-based writes (`cat > x << EOF`, `python3 -c`, `python3 << EOF`, `echo > x`, `tee`, `cp / mv / rm / sed -i`). Files get GitHub-style status badges: **A** added · **M** modified · **T** touched · **D** deleted.
-2. **Trajectory replay.** A film-style scrubber with a step timeline, the active step's message / reasoning / tool calls / observation, and a synchronized artifact stage that renders whichever artifact the step produced.
-3. **Specialised renderers.** Spreadsheets become multi-tab grids. Images inline. **ARC-AGI grids** render as colored cells with an automatic expected-vs-actual comparison. Web fetches render as the page the agent saw. Computer-use steps show screenshots.
-4. **Verifier log + reward.** Score, pass / fail gate, per-rubric subscores, the verifier's raw log, and structured findings — all in one panel.
-5. **Agent Failure Taxonomy (AFT v1.0).** Four-axis audit (Stage × Cause × Behaviour × Impact). Pre-computed reports load instantly; for un-analyzed runs, **Apply AFT analysis** uses your browser-stored Anthropic / OpenAI key — or your local Claude Code / Codex CLI via `npm run bridge` — to generate one. Every failure mode links to the step it implicates.
-6. **Step-level annotation.** Mark each step correct / incorrect / unsure with a note. Stored only in `localStorage`.
-7. **Bring your own data.** Drop a Harbor task zip on `/upload`; it parses in-browser, never leaves your machine.
+### 1. Task page — Human ⇄ Agent file system, multi-run table
+
+Browse the raw task directory (`task.toml`, `instruction.md`, `environment/`, `tests/`, `solution/`) or switch to the container filesystem the agent sees, reconstructed from the Dockerfile's `COPY` / `WORKDIR` rules. Click any file to render it inline — markdown, code, images, multi-tab spreadsheets, ARC-AGI grids — and the run table below lists every trial that's been ingested for the task.
+
+![Task page](./img/task_image.png)
+
+### 2. Trajectory page — film-style replay + agent file system + terminal
+
+A scrubbable step timeline on the left, the agent's live workspace (terminal + filesystem with the **Human ⇄ Agent** toggle and GitHub-style **A / M / T / D** status badges) in the middle, and the active step's message / reasoning / tool call / observation on the right. The viewer parses Write / Edit / apply_patch tool calls **and** shell-based writes (`cat > x << EOF`, `python3 << EOF`, `python3 -c`, `echo > x`, `tee`, `cp / mv / rm / sed -i`) so files appear in the agent view regardless of how the agent wrote them.
+
+![Trajectory page](./img/traj_page.png)
+
+### 3. AFT failure-mode analysis (Agent Failure Taxonomy v1.0)
+
+A four-axis audit (**A** Stage · **B** Root cause · **C** Behaviour · **D** Impact). Pre-computed reports load instantly for every Harbor-Index run; for un-analyzed runs, **Apply AFT analysis** uses your browser-stored Anthropic / OpenAI key to generate one. Each failure mode lists its A×B×C×D code, an evidence quote, the implicated step indices (clickable — they jump the whole viewer to that step), and a counterfactual fix. Reward, verifier log, rubric subscores, and step-level human annotation all live in the same right rail.
+
+![AFT panel](./img/AFT_demo.png)
+
+### 4. Specialised renderers
+
+Spreadsheets become multi-tab grids. `.xlsx` workbooks parse with openpyxl into `@@SHEET:` blocks. **ARC-AGI** tasks auto-detect their 2D number arrays and render colored cells with an **expected ↔ actual** comparison. Web fetches render as the page the agent saw. Computer-use steps show screenshots.
+
+### 5. Bring your own data
+
+Drop a Harbor task zip on `/upload`; it parses in-browser and never leaves your machine. Or rewrite `scripts/ingest.py` to emit `public/dataset.json` for whatever benchmark format you have.
 
 ## Use it
 
-1. **Online:** open https://atif-trajectory-viewer.vercel.app/ and click `▶ Start guided tour` (or the `Feature showcase`).
+1. **Online:** open https://atif-trajectory-viewer.vercel.app/ and click `▶ Start guided tour` (or `Feature showcase`).
 2. **Locally:**
    ```bash
    npm install
    npm run dev          # http://localhost:5173
    ```
-3. **Your own data:** drop a Harbor task `.zip` on `/upload`, or rewrite `scripts/ingest.py` to emit `public/dataset.json` from your source and re-deploy.
-
-For deploy, AFT-bridge, and analytics setup see [`DEPLOY.md`](./DEPLOY.md) and [`bridge/README.md`](./bridge/README.md).
 
 ## Citation
 
@@ -51,8 +66,17 @@ If this viewer helps your work, please cite it:
 }
 ```
 
-Or inline: *Lin Shi, ATIF Trajectory Viewer, 2026. https://github.com/Slimshilin/ATIF-trajectory-viewer*
+Inline: *Lin Shi, ATIF Trajectory Viewer, 2026. https://github.com/Slimshilin/ATIF-trajectory-viewer*
+
+## Author
+
+Built by [**Lin Shi** (Slimshilin)](https://github.com/Slimshilin) — core
+contributor to [**Terminal-Bench**](https://www.tbench.ai/) and
+[**Harbor**](https://www.harborframework.com/), leading the
+[Harbor Adapter Team](https://github.com/harbor-framework).
 
 ## License
 
-Apache-2.0. Built by [Lin Shi (Slimshilin)](https://github.com/Slimshilin). Terminal-Bench 2.1 and the Harbor-Index annotate bundle are redistributed under their original Apache-2.0 terms with attribution preserved in each source's `coverage` note.
+Apache-2.0. Terminal-Bench 2.1 and the Harbor-Index annotate bundle are
+redistributed under their original Apache-2.0 terms with attribution
+preserved in each source's `coverage` note.
