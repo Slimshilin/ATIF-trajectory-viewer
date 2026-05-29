@@ -1,5 +1,10 @@
 # ATIF Trajectory Viewer
 
+Built by [**Lin Shi** (Slimshilin)](https://github.com/Slimshilin) — core
+contributor to [**Terminal-Bench**](https://www.tbench.ai/) and
+[**Harbor**](https://www.harborframework.com/), leading the
+[Harbor Adapter Team](https://www.harborframework.com/docs/datasets/adapters-human).
+
 **Live demo → https://atif-trajectory-viewer.vercel.app/**
 
 As agent trajectories become longer, multi-modal, multi-turn, and more
@@ -79,13 +84,6 @@ If this viewer helps your work, please cite it:
 ```
 
 Inline: *Lin Shi, ATIF Trajectory Viewer, 2026. https://github.com/Slimshilin/ATIF-trajectory-viewer*
-
-## Author
-
-Built by [**Lin Shi** (Slimshilin)](https://github.com/Slimshilin) — core
-contributor to [**Terminal-Bench**](https://www.tbench.ai/) and
-[**Harbor**](https://www.harborframework.com/), leading the
-[Harbor Adapter Team](https://www.harborframework.com/docs/datasets/adapters-human).
 
 ## License
 
