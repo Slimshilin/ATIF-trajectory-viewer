@@ -4,10 +4,10 @@
 // public site (no API key / bridge needed by visitors). Uses your local
 // subscription CLI (claude / codex), like the bridge, but in batch.
 //
-// Run (from cc_viewer/):
+// Run (from ./):
 //   npm run aft:batch                 # all failed runs (resumes; skips done)
 //   npm run aft:batch -- --limit 10   # cap how many this pass
-//   npm run aft:batch -- --vendor snorkel
+//   npm run aft:batch -- --source terminal-bench-2-1
 //   npm run aft:batch -- --cli codex
 //
 // Output: public/aft/<runId>.json  +  public/aft/index.json (manifest)

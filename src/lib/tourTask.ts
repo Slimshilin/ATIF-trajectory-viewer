@@ -1,19 +1,20 @@
 // ---------------------------------------------------------------------------
-// Synthetic "Guided Tour" task — a single, clearly-labeled fabricated task that
-// exercises EVERY feature the viewer can show, so the interactive walkthrough
-// can stay on one coherent task/run instead of hopping between real ones (which
-// caused empty artifact stages and skipped steps).
+// Synthetic "Guided Tour" task — a single, clearly-labeled fabricated task
+// that exercises EVERY feature the viewer can show, so the interactive
+// walkthrough can stay on one coherent task / run instead of hopping
+// between real ones (which produces empty artifact stages and skipped steps).
 //
-// The content is illustrative (and labeled synthetic in the UI), except the
-// screenshots, which reuse real public session images so the artifact stage
-// renders a genuine picture. This task is hidden from the Tasks list and the
-// Overview leaderboards (see dataset.tsx) but is reachable by URL for the tour.
+// All content here is hand-written demo material. The two "computer-use"
+// screenshots are inline SVG mockups encoded as data URIs — no external
+// asset is loaded, so the tour works offline and ships no third-party data.
+// This task is hidden from the Tasks list and the Overview leaderboards
+// (see dataset.tsx) but is reachable by URL for the guided walkthrough.
 // ---------------------------------------------------------------------------
 import type { Agent, Run, Step, Task, Vendor } from './types'
 import type { UploadBundle } from './dataset'
 
-export const TOUR_VENDOR_ID = 'slimshilin-tour'
-export const TOUR_TASK_ID = 'slimshilin-tour-demo'
+export const TOUR_VENDOR_ID = 'tour'
+export const TOUR_TASK_ID = 'tour-demo'
 export const TOUR_RUN_ID = 'tour-demo-hero'
 
 // Step indices the tour points at (kept in sync with the hero run + AFT report).
@@ -27,8 +28,57 @@ export const TOUR_STEPS = {
   lost: 8,
 } as const
 
-const SHOT_A = 'https://fleet-sessions-images.s3.us-east-1.amazonaws.com/image-0f16382f-4212-4900-b624-bec6bb377fd9/019d8872_20260413_200807_369829_1872.png'
-const SHOT_B = 'https://fleet-sessions-images.s3.us-east-1.amazonaws.com/image-0f16382f-4212-4900-b624-bec6bb377fd9/019d8872_20260413_200902_532011_311.png'
+// Inline SVG mockups, base64-encoded → data URIs. Both depict a fake
+// "Spreadsheet" window so the computer-use stage renders something plausible
+// without loading any external image.
+const SVG_EXCEL_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
+  <rect width="720" height="460" fill="#f4f4f5"/>
+  <rect width="720" height="40" fill="#107c41"/>
+  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet — T12_model.xlsx</text>
+  <rect x="0" y="40" width="720" height="30" fill="#e7e5e4"/>
+  <text x="14" y="60" font-size="12" fill="#3f3f46">File · Edit · View · Formulas · Data · Review</text>
+  <g font-size="12" fill="#27272a">
+    <rect x="10" y="80" width="700" height="24" fill="#d4d4d8"/>
+    <text x="20" y="96" font-weight="600">A</text><text x="105" y="96" font-weight="600">B</text>
+    <text x="190" y="96" font-weight="600">C</text><text x="275" y="96" font-weight="600">D</text>
+    <text x="360" y="96" font-weight="600">E (Income·T12)</text>
+    <line x1="10" y1="104" x2="710" y2="104" stroke="#a1a1aa"/>
+    <text x="20" y="128">Unit</text><text x="105" y="128">Jul</text><text x="190" y="128">Aug</text>
+    <text x="275" y="128">Sep</text><text x="360" y="128">=AVERAGE(B:D)*12</text>
+    <text x="20" y="152">A-101</text><text x="105" y="152">2400</text><text x="190" y="152">2400</text>
+    <text x="275" y="152">2475</text><text x="360" y="152" fill="#15803d">29,700</text>
+    <text x="20" y="176">A-102</text><text x="105" y="176">2200</text><text x="190" y="176">2260</text>
+    <text x="275" y="176">2260</text><text x="360" y="176" fill="#15803d">26,880</text>
+    <text x="20" y="200">B-201</text><text x="105" y="200">3100</text><text x="190" y="200">3100</text>
+    <text x="275" y="200">3180</text><text x="360" y="200" fill="#15803d">37,520</text>
+    <text x="20" y="224">B-202</text><text x="105" y="224">2950</text><text x="190" y="224">2950</text>
+    <text x="275" y="224">2950</text><text x="360" y="224" fill="#15803d">35,400</text>
+    <line x1="10" y1="240" x2="710" y2="240" stroke="#a1a1aa" stroke-dasharray="3"/>
+    <text x="20" y="262" font-weight="700">TOTAL</text>
+    <text x="360" y="262" font-weight="700" fill="#15803d">129,500</text>
+  </g>
+  <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
+  <text x="14" y="450" font-size="11" fill="white">Sheet1 · T12 · Expenses        Ready</text>
+</svg>`
+
+const SVG_EXCEL_CONFIRM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
+  <rect width="720" height="460" fill="#f4f4f5"/>
+  <rect width="720" height="40" fill="#107c41"/>
+  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet — T12_model.xlsx — verified</text>
+  <rect x="100" y="120" width="520" height="220" rx="10" fill="white" stroke="#a1a1aa" stroke-width="1.5"/>
+  <circle cx="360" cy="190" r="36" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+  <path d="M345 192 l12 12 l24 -28" stroke="#15803d" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="360" y="262" font-size="18" fill="#27272a" text-anchor="middle" font-weight="600">Totals verified</text>
+  <text x="360" y="290" font-size="13" fill="#52525b" text-anchor="middle">T12 income reconciled to 129,500</text>
+  <rect x="280" y="306" width="160" height="32" rx="6" fill="#15803d"/>
+  <text x="360" y="327" font-size="13" fill="white" text-anchor="middle" font-weight="600">OK</text>
+  <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
+  <text x="14" y="450" font-size="11" fill="white">Sheet1 · T12 · Expenses        Verified</text>
+</svg>`
+
+// btoa is available in every browser; SSR isn't a concern (Vite ships SPA bundles).
+const SHOT_A = `data:image/svg+xml;base64,${btoa(SVG_EXCEL_OPEN)}`
+const SHOT_B = `data:image/svg+xml;base64,${btoa(SVG_EXCEL_CONFIRM)}`
 
 const vendor: Vendor = { id: TOUR_VENDOR_ID, name: 'Guided Tour (synthetic)' }
 

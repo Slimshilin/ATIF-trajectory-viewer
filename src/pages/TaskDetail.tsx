@@ -43,7 +43,7 @@ export default function TaskDetail() {
         {/* Environment (Dockerfile / compose interpretation) */}
         <EnvironmentPanel task={task} />
 
-        {/* Snorkel-style metadata */}
+        {/* OAI-messages style metadata */}
         {(meta.expected_tools as string[] | undefined)?.length || meta.expected_answer ? (
           <section className="grid gap-4 lg:grid-cols-2">
             {(meta.expected_tools as string[] | undefined)?.length ? (
@@ -73,14 +73,14 @@ export default function TaskDetail() {
           </section>
         ) : null}
 
-        {/* GoodStartLabs: on-disk replay recordings that aren't inlined */}
+        {/* On-disk replay recordings (mp4/gif) that the source didn't inline */}
         {(meta.replay_recordings as string[] | undefined)?.length ? (
           <div className="card p-5">
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
               Replay recordings (on disk, not inlined)
             </h2>
             <p className="mb-3 text-xs text-zinc-500">
-              The vendor ships GIF / MP4 screen captures of each agent solving this puzzle.
+              The data source ships GIF / MP4 screen captures of each agent solving this puzzle.
               They're listed here so they're discoverable, but kept out of the bundle to
               control size — open the source archive on disk to view them.
             </p>

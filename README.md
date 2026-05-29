@@ -77,7 +77,7 @@ Per-run grading is rendered all in one panel:
 - the raw **score** (and `maxScore` if the grader uses one), with
   pass / fail badge;
 - the **gate** dictionary (when the grader uses a conjunctive scheme
-  like Snorkel's `answer_correct ∧ state_correct ∧ safety_correct`);
+  e.g. `answer_correct ∧ state_correct ∧ safety_correct`);
 - per-rubric **subscores** as labeled bars;
 - the verifier's free-text **summary / log**;
 - structured **findings** (severity + category + detail) when the grader
@@ -108,19 +108,17 @@ To regenerate `dataset.json` from the raw sources:
 git clone --depth 1 https://github.com/harbor-framework/terminal-bench-2-1.git \
   data/terminal-bench-2-1
 
-# 2. Download public agent trajectories from HuggingFace (Apache-2.0)
-pip install huggingface_hub pyarrow
-huggingface-cli download yoonholee/terminalbench-trajectories \
-  --repo-type dataset --local-dir data/hf-cache --include 'data/*.parquet'
-
-# 3. Run the ingester
+# 2. Run the ingester. It fetches the matching trajectories LAZILY over HTTP
+#    from the official harborframework/terminal-bench-2-leaderboard dataset
+#    on HuggingFace (Apache-2.0) and caches them under data/hf-leaderboard-cache/.
+#    No bulk repo download.
 python3 scripts/ingest.py
 ```
 
 The script normalizes both sources into the shapes in `src/lib/types.ts`
-and writes `public/dataset.json`. Tweak the `TASK_PICKS` and per-task
-trajectory counts at the top of `scripts/ingest.py` to change which tasks
-are bundled.
+and writes `public/dataset.json`. Tweak `TASK_PICKS` and `TB_AGENTS` at the
+top of `scripts/ingest.py` to change which tasks / agent submissions are
+bundled.
 
 ## Bring your own data
 
@@ -138,7 +136,7 @@ The viewer renders **any** dataset that matches the schema in
 
 The repo is intentionally a **demo of the viewer mechanics, not a fixed
 benchmark dashboard.** Swap the ingest, change the failure-mode taxonomy,
-add new vendor coverage notes, replace the showcase — everything is one
+add new source coverage notes, replace the showcase — everything is one
 typed file away.
 
 ## Pages
@@ -146,13 +144,13 @@ typed file away.
 | Route | Page | Notes |
 |-------|------|-------|
 | `/` | **Quick start** | One-screen intro + guided-tour launcher. |
-| `/showcase` | **Feature showcase** | Hero cards demonstrating every viewer feature, plus a per-vendor curated grid (1–2 typical examples each) that lands on the task page. |
-| `/overview` | **Leaderboard** | Per-vendor model rankings: pass rate, reward avg/min/max, steps, turns, duration. |
-| `/insights` | **AFT insights** | Cross-cutting view of every pre-computed AFT report — outcomes, failure-mode frequencies, and links back to the individual trajectories. |
-| `/tasks` | **Tasks** | Vendor-grouped task cards with feature badges (spreadsheet, web, screenshots, AFT, …) inferred from the actual run content. Each vendor section shows a `Coverage` note describing what was inlined vs intentionally skipped. |
+| `/showcase` | **Feature showcase** | Hero cards demonstrating every viewer feature, plus a coverage map confirming each capability is reachable from the bundled data. |
+| `/tasks` | **Tasks** | Task cards grouped by source, with feature badges (terminal · spreadsheet · web · screenshots · AFT · verifier log · …) inferred from the actual run content. Each source section shows a `Coverage` note describing what was inlined vs intentionally skipped. |
 | `/tasks/:id` | **Task detail** | Instruction (markdown), expected-tools / expected-answer (when shipped), Human ⇄ Agent file browser, multi-run statistics, runs table. |
 | `/tasks/:id/runs/:runId` | **Trajectory viewer** | Step timeline, message/reasoning/tool-call/observation, artifact stage (spreadsheet / web / screenshots / document / answer), AFT panel, verifier-log / grade panel, per-step human-annotation form. |
+| `/insights` | **AFT insights** | Cross-cutting view of every pre-computed AFT report — outcomes, failure-mode frequencies, and links back to the individual trajectories. |
 | `/upload` | **Upload** | Drop a Harbor task zip or ATIF trajectory — parsed in-browser, never leaves your machine. |
+| `/overview` | **Leaderboard** | Model rankings across task sources: pass rate, reward avg/min/max, steps, turns, duration. (URL-reachable; not in the sidebar.) |
 
 ## Deploy (Vercel)
 
@@ -165,9 +163,9 @@ shipped as a static asset.
 Apache-2.0. The Terminal-Bench 2.1 task definitions
 ([harbor-framework/terminal-bench-2-1](https://github.com/harbor-framework/terminal-bench-2-1))
 and trajectories
-([yoonholee/terminalbench-trajectories](https://huggingface.co/datasets/yoonholee/terminalbench-trajectories))
+([harborframework/terminal-bench-2-leaderboard](https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard))
 are also Apache-2.0; this repo redistributes them under the same terms with
-attribution preserved in each vendor's `coverage` note.
+attribution preserved in each source's `coverage` note.
 
 ## Acknowledgements
 

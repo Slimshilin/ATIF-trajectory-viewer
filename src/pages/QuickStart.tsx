@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import {
-  LayoutDashboard, Rocket, FolderTree, Upload as UploadIcon, Sparkles,
+  Rocket, FolderTree, Upload as UploadIcon, Sparkles,
   PlayCircle, ScanSearch, MousePointerClick, type LucideIcon,
 } from 'lucide-react'
 import { PageHeader } from '../components/Layout'
@@ -21,36 +21,31 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: 'Welcome to the ATIF Trajectory Viewer',
-    body: 'Inspect agent task directories and trajectories, compare harnesses & models per vendor, watch a run play back like a film, and diagnose failures with the Agent Failure Taxonomy (AFT). This 6-step tour shows where everything lives — use Next / Back, or skip anytime.',
+    body: 'Inspect agent task directories and trajectories, compare harnesses & models, watch a run play back like a film, and diagnose failures with the Agent Failure Taxonomy (AFT). This 5-step tour shows where everything lives — use Next / Back, or skip anytime. Built by Lin Shi (Slimshilin) — Apache-2.0.',
     highlight: null, Icon: Rocket,
   },
   {
-    title: '1 · Overview — per-vendor leaderboards',
-    body: 'Each vendor ranks its models (the agent harness — Claude Code / Codex / OpenHands — is shown separately from the model). Pass rate, reward, steps, and duration are reported as average (min–max).',
-    highlight: 'overview', Icon: LayoutDashboard, to: '/overview', toLabel: 'Open Overview',
-  },
-  {
-    title: '2 · Tasks — browse by vendor, spot features',
-    body: 'Tasks are grouped vendor → environment/category. Every card carries badges for what it supports — spreadsheet, web, screenshots, document, conversation, Dockerfile environment, AFT, verifier log, and more. Open a task to see its directory, environment, and runs.',
+    title: '1 · Tasks — browse the catalog, spot features',
+    body: 'Tasks are grouped by source · environment/category. Every card carries badges for what it supports — spreadsheet, web, screenshots, document, conversation, Dockerfile environment, AFT, verifier log, and more. Open a task to see its directory, environment, and runs.',
     highlight: 'tasks', Icon: FolderTree, to: '/tasks', toLabel: 'Open Tasks',
   },
   {
-    title: '3 · Trajectory viewer — play the run',
+    title: '2 · Trajectory viewer — play the run',
     body: 'Open any run and press ▶ Play. Watch the step timeline, the live environment stage (spreadsheet grid, web page, computer-use screenshots), and the IDE (terminal + clickable files, with a foldable Human ⇄ Agent filesystem). The left and right panels are resizable and collapsible.',
     highlight: 'showcase', Icon: PlayCircle, to: '/showcase', toLabel: 'Pick an example',
   },
   {
-    title: '4 · Reward, Verifier log & AFT analysis',
+    title: '3 · Reward, Verifier log & AFT analysis',
     body: 'In a run, the right rail has Reward & Verifier log (score + foldable log), Changes (every state-changing step), and AFT — a model-driven failure audit with A×B×C×D codes, clickable failure steps, and your own agree/disagree notes. Many runs are pre-analyzed (✦) so it shows instantly.',
     highlight: 'showcase', Icon: ScanSearch, to: '/showcase', toLabel: 'See an analyzed run',
   },
   {
-    title: '5 · Upload your own Harbor tasks',
+    title: '4 · Upload your own Harbor tasks',
     body: 'Drag a Harbor zip (multiple tasks, each with a jobs/ folder of trials) and it’s parsed in your browser — task directory, environment, and trajectories. A sample zip is provided on the page.',
     highlight: 'upload', Icon: UploadIcon, to: '/upload', toLabel: 'Open Upload',
   },
   {
-    title: '6 · Explore the Feature showcase',
+    title: '5 · Explore the Feature showcase',
     body: 'A handful of curated examples each demonstrate several features at once — the shortest path to see (or record) everything the platform does.',
     highlight: 'showcase', Icon: Sparkles, to: '/showcase', toLabel: 'Open Feature showcase',
   },

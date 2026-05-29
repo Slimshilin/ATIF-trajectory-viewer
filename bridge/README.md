@@ -11,7 +11,7 @@ the real, file-reading, multi-step AFT audit (no token truncation).
 ## Run
 
 ```bash
-# from cc_viewer/
+# from repo root
 npm run bridge          # serves http://localhost:8765
 ```
 
@@ -55,7 +55,7 @@ automatically when a trajectory opens (no key, no button).
 ```bash
 npm run aft:batch                  # all failed runs (resumes; skips done)
 npm run aft:batch -- --limit 20    # cap this pass
-npm run aft:batch -- --vendor snorkel --timeout 300000
+npm run aft:batch -- --source terminal-bench-2-1 --timeout 300000
 ```
 
 Writes `public/aft/<runId>.json` + `public/aft/index.json`. Commit those, build,

@@ -63,7 +63,7 @@ function taskBadges(task: Task, runs: Run[], aftIds: Set<string>): Badge[] {
 
 export default function Tasks() {
   const { data, error } = useDatasetStore()
-  const { isTencent } = useAuth()
+  const { isMember } = useAuth()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [aftIds, setAftIds] = useState<Set<string>>(new Set())
 
@@ -83,7 +83,7 @@ export default function Tasks() {
   if (error) return <div className="p-8 text-rose-400">Failed to load dataset: {error}</div>
   if (!data) return <Loading />
 
-  const tasks = visibleTasks(data, isTencent)
+  const tasks = visibleTasks(data, isMember)
   // group: vendor -> category -> tasks
   const byVendor = new Map<string, Map<string, Task[]>>()
   for (const t of tasks) {
@@ -98,7 +98,7 @@ export default function Tasks() {
     <>
       <PageHeader
         title="Tasks"
-        subtitle={`${tasks.length} tasks · grouped by vendor → environment/category`}
+        subtitle={`${tasks.length} tasks · grouped by source · environment/category`}
       />
       <div className="space-y-6 p-8">
         <details className="text-xs text-zinc-500">

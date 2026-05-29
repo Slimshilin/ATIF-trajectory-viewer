@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
-// Open-source build: no auth. The hook exists only so legacy call sites
-// (`useAuth().isTencent`, `.record(...)`, etc.) continue to type-check without
-// edits. Every viewer is a guest.
+// Identity hook. The public build of this viewer has no sign-in and no server,
+// so every visitor is a "guest" and `isMember` is always false. The hook is
+// kept around so a fork that adds real auth (OIDC, OAuth, magic link, …) only
+// needs to swap the provider — every call site is already wired up.
 // ---------------------------------------------------------------------------
 import { createContext, useContext, useState, type ReactNode } from 'react'
 
@@ -9,10 +10,12 @@ export type Account = { kind: 'guest' }
 
 interface AuthCtx {
   user: Account | null
-  isTencent: boolean
-  loginTencent: (name: string, password: string) => boolean
+  /** True when the visitor is a signed-in member (gated UI / activity logging). */
+  isMember: boolean
+  signIn: (name: string, password: string) => boolean
   continueAsGuest: () => void
-  logout: () => void
+  signOut: () => void
+  /** Record a UI event (label edit, annotation, …). No-op when not signed in. */
   record: (event: Record<string, unknown>) => void
   activity: Record<string, unknown>[]
 }
@@ -20,10 +23,10 @@ interface AuthCtx {
 const noop = () => {}
 const Ctx = createContext<AuthCtx>({
   user: { kind: 'guest' },
-  isTencent: false,
-  loginTencent: () => false,
+  isMember: false,
+  signIn: () => false,
   continueAsGuest: noop,
-  logout: noop,
+  signOut: noop,
   record: noop,
   activity: [],
 })
@@ -34,10 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         user: { kind: 'guest' },
-        isTencent: false,
-        loginTencent: () => false,
+        isMember: false,
+        signIn: () => false,
         continueAsGuest: noop,
-        logout: noop,
+        signOut: noop,
         record: noop,
         activity,
       }}

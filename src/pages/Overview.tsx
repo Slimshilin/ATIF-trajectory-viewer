@@ -8,11 +8,11 @@ import clsx from 'clsx'
 
 export default function Overview() {
   const { data, error } = useDatasetStore()
-  const { isTencent } = useAuth()
+  const { isMember } = useAuth()
   if (error) return <div className="p-8 text-rose-400">Failed to load dataset: {error}</div>
   if (!data) return <Loading />
 
-  const visible = visibleTasks(data, isTencent)
+  const visible = visibleTasks(data, isMember)
   const allowedVendors = new Set(visible.map((t) => t.vendorId))
   const boards = leaderboardByVendor(data).filter((b) => allowedVendors.has(b.vendorId))
 
@@ -20,7 +20,7 @@ export default function Overview() {
     <>
       <PageHeader
         title="Overview"
-        subtitle={`Per-vendor model leaderboards · ${data.vendors.length} ${data.vendors.length === 1 ? 'vendor' : 'vendors'}`}
+        subtitle={`Model leaderboards · ${data.vendors.length} ${data.vendors.length === 1 ? 'vendor' : 'vendors'}`}
       />
       <div className="space-y-6 p-8">
         {boards.length === 0 && (
@@ -90,7 +90,7 @@ export default function Overview() {
         })}
         <p className="text-xs text-zinc-600">
           Harness (Claude Code · Codex · OpenHands · OpenCode …) and model are tracked separately; either
-          may read <span className="text-zinc-400">not reported</span> when a vendor's export omits it.
+          may read <span className="text-zinc-400">not reported</span> when the source export omits it.
           Ranges show average (min–max).
         </p>
       </div>

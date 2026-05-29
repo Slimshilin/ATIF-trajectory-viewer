@@ -1,8 +1,11 @@
 export const FORMAT_LABELS: Record<string, string> = {
   atif: 'ATIF',
-  snorkel: 'Snorkel',
   harbor: 'Harbor',
-  fleet: 'FleetAI',
+  // `snorkel` and `fleet` are legacy RunFormat variants that aren't produced
+  // by the bundled ingest but remain renderable so forks that pipe in those
+  // shapes don't have to add labels.
+  snorkel: 'OAI-messages',
+  fleet: 'OAI-messages',
 }
 
 export function fmtDuration(sec: number | null | undefined): string {
@@ -32,7 +35,7 @@ export function fmtTokens(n: number | null | undefined): string {
   return String(n)
 }
 
-/** Prettify the ugly model dir names from some vendors. */
+/** Prettify the ugly slash-delimited model strings some sources ship. */
 export function prettyModel(model?: string | null): string {
   if (!model) return 'not reported'
   return model

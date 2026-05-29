@@ -52,7 +52,7 @@ export default function GradePanel({
         <div className="mt-2"><ScoreBar value={score} max={max} /></div>
       </div>
 
-      {/* Conjunctive gate (Snorkel) */}
+      {/* Conjunctive gate */}
       {grade.gate && (
         <div className="grid grid-cols-2 gap-2">
           {Object.entries(grade.gate).map(([k, v]) => (

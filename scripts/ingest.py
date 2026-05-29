@@ -5,28 +5,45 @@ trajectories into the viewer's `public/dataset.json`.
 Inputs:
   - data/terminal-bench-2-1/tasks/<name>/   — task definitions cloned from
     https://github.com/harbor-framework/terminal-bench-2-1 (Apache-2.0).
-  - data/hf-cache/data/train-*.parquet     — trajectories downloaded from
-    yoonholee/terminalbench-trajectories on HF (Apache-2.0).
+  - HuggingFace dataset `harborframework/terminal-bench-2-leaderboard`
+    (Apache-2.0) — fetched lazily over HTTP, one trial at a time, and cached
+    under data/hf-leaderboard-cache/ (gitignored). NEVER clones the whole repo.
 
 Output:
   - public/dataset.json   normalized to the shapes in src/lib/types.ts.
 
-Curated picks: 10 representative TB tasks (mix of categories / difficulty),
-with up to 2 trajectories per task (1 passed + 1 failed) drawn from different
-agent/model combos so the leaderboard has comparable rows.
+Curated picks: 10 representative TB tasks × 4 distinct agent/model harnesses
+= up to 40 trajectories. Each trajectory ships in proper ATIF format directly
+from the official leaderboard submission, so provenance is clean.
 
 Run from the repo root:
     python3 scripts/ingest.py
 """
 from __future__ import annotations
-import base64, glob, json, mimetypes, os, re
+import base64, json, mimetypes, os, re, time
+import urllib.request, urllib.error
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 TB_TASKS = os.path.join(ROOT, "data", "terminal-bench-2-1", "tasks")
-PARQUETS = sorted(glob.glob(os.path.join(ROOT, "data", "hf-cache", "data", "train-*.parquet")))
+HF_CACHE = os.path.join(ROOT, "data", "hf-leaderboard-cache")
 OUT = os.path.join(ROOT, "public", "dataset.json")
+
+# Official leaderboard dataset on HuggingFace. ALL fetches go through the
+# Apache-2.0 dataset's resolve endpoint with on-disk caching.
+HF_API = "https://huggingface.co/api/datasets/harborframework/terminal-bench-2-leaderboard"
+HF_FILE = "https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard/resolve/main"
+
+# One agent/model pair per major model family, all confirmed to ship full
+# `agent/trajectory.json` ATIF logs (some leaderboard submissions only ship
+# result.json — those are skipped).
+TB_AGENTS = [
+    "Judy__Claude-Opus-4.6",                   # Anthropic (Judy harness)
+    "CodeBrain-1__GPT-5.3-Codex",              # OpenAI    (CodeBrain harness)
+    "Gemini_CLI__Gemini-3.1-Pro-Preview",      # Google    (Gemini CLI harness)
+    "ClaudeCode__GLM-4.7",                     # Z-AI GLM  (Claude Code harness)
+]
 
 # 10 representative TB-2.1 tasks (curated to span categories + difficulty).
 TASK_PICKS = [
@@ -353,85 +370,174 @@ def load_tb_tasks(picks: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TB trajectories — yoonholee/terminalbench-trajectories parquet.
+# TB leaderboard trajectories — fetched lazily from HuggingFace, one trial at
+# a time. Each agent submission has metadata.yaml + one or more date-stamped
+# job folders containing per-trial dirs `<task>__<hash>/{result.json, agent/}`,
+# with the trajectory in `agent/trajectory.json` (proper ATIF format).
 # ---------------------------------------------------------------------------
 
-def load_tb_trajectories(picks: list[str]):
-    if not PARQUETS:
-        print(f"  ! no parquets in data/hf-cache/ — run download step first")
-        return
+def _hf_get(url: str, retries: int = 3, timeout: int = 30) -> bytes:
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json, */*"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"HF fetch failed after {retries} attempts: {url} — {last_err}")
+
+
+def hf_tree(rel_path: str) -> list[dict]:
+    """List a directory on the leaderboard repo via the HF tree API."""
+    raw = _hf_get(f"{HF_API}/tree/main/{rel_path}")
+    return json.loads(raw.decode("utf-8"))
+
+
+def hf_file_cached(rel_path: str) -> bytes:
+    """Download one file from the leaderboard repo, caching by full path."""
+    cache_p = os.path.join(HF_CACHE, rel_path)
+    if os.path.isfile(cache_p):
+        return open(cache_p, "rb").read()
+    os.makedirs(os.path.dirname(cache_p), exist_ok=True)
+    raw = _hf_get(f"{HF_FILE}/{rel_path}")
+    with open(cache_p, "wb") as f:
+        f.write(raw)
+    return raw
+
+
+def _norm_atif_step(s: dict, idx: int) -> dict:
+    """Normalize one ATIF step into our Step shape (standard ATIF normalization)."""
+    role = {
+        "user": "user", "agent": "agent", "assistant": "agent",
+        "tool": "tool", "system": "system",
+    }.get((s.get("source") or "agent").lower(), "agent")
+    raw_tcs = s.get("tool_calls") or []
+    tcs: list[dict] = []
+    muts: list[dict] = []
+    for tc in raw_tcs:
+        name = tc.get("function_name") or (tc.get("function") or {}).get("name") or "tool"
+        args = tc.get("arguments")
+        if args is None and tc.get("function"):
+            args = tc["function"].get("arguments")
+        if not isinstance(args, str):
+            args = json.dumps(args, ensure_ascii=False) if args is not None else None
+        tcs.append({"name": name, "args": args})
+        m = detect_mutation(name, args)
+        if m:
+            muts.append(m)
+    obs = s.get("observation")
+    if isinstance(obs, dict):
+        results = obs.get("results")
+        if isinstance(results, list):
+            obs = "\n\n".join(str(r.get("content", r)) for r in results)
+        else:
+            obs = json.dumps(obs, ensure_ascii=False)
+    elif isinstance(obs, list):
+        obs = "\n\n".join(str(x) for x in obs)
+    metrics = s.get("metrics") or {}
+    return {
+        "index": idx, "role": role,
+        "text": s.get("message") if role != "tool" else None,
+        "reasoning": s.get("reasoning_content"),
+        "toolCalls": tcs or None,
+        "observation": obs if (role == "tool" or obs) else None,
+        "toolName": None,
+        "tokens": {"prompt": metrics.get("prompt_tokens"),
+                   "completion": metrics.get("completion_tokens")} if metrics else None,
+        "timestamp": s.get("timestamp"),
+        "mutations": muts or None,
+        "edits": None,
+    }
+
+
+def _iso_duration(a: str | None, b: str | None) -> float | None:
+    if not a or not b:
+        return None
     try:
-        import pyarrow.parquet as pq
-        import pyarrow as pa
-    except ImportError:
-        print("  ! pyarrow not installed — pip install pyarrow")
-        return
-    tables = [pq.read_table(p) for p in PARQUETS]
-    table = pa.concat_tables(tables)
-    df = table.to_pandas()
-    df = df[df["task_name"].isin(picks)]
-    # Drop the literal "null" steps rows
-    df = df[df["steps"].notna() & df["steps"].str.startswith("[")]
-    print(f"  candidate rows after filter: {len(df)}")
+        return max(0.0, (datetime.fromisoformat(b.replace("Z", "+00:00"))
+                          - datetime.fromisoformat(a.replace("Z", "+00:00"))).total_seconds())
+    except Exception:
+        return None
+
+
+def _load_one_trial(agent_dir: str, date_dir: str, trial_rel: str,
+                    task_name: str, vid: str) -> bool:
+    """Fetch + parse one trial. Returns True if a run was added."""
+    base = f"submissions/terminal-bench/2.0/{agent_dir}/{date_dir}/{trial_rel}"
+    try:
+        result = json.loads(hf_file_cached(f"{base}/result.json"))
+    except Exception as e:
+        print(f"    skip {trial_rel}: result.json fetch failed ({e})")
+        return False
+    cfg_agent = ((result.get("config") or {}).get("agent")) or {}
+    harness = cfg_agent.get("name") or agent_dir.split("__")[0]
+    model = cfg_agent.get("model_name") or agent_dir.split("__", 1)[-1]
+    aid = agent(harness, model, vid)
+    reward = ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward")
+    passed = reward is not None and float(reward) >= 0.999
+    started = result.get("started_at")
+    finished = result.get("finished_at")
+    exc = result.get("exception_info")
+
+    try:
+        traj = json.loads(hf_file_cached(f"{base}/agent/trajectory.json"))
+    except Exception as e:
+        print(f"    skip {trial_rel}: trajectory fetch failed ({e})")
+        return False
+    raw_steps = traj.get("steps") or []
+    steps = [_norm_atif_step(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
+
+    tid = slug(f"tb-{task_name}")
+    runs.append({
+        "id": slug(f"tb-{trial_rel}-{harness}-{model}"),
+        "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
+        "status": "passed" if passed else ("failed" if reward is not None else "completed"),
+        "passed": passed, "reward": reward,
+        "steps": steps, "stepCount": len(steps),
+        "artifacts": run_artifacts(steps),
+        "turns": sum(1 for s in steps if s["role"] == "agent"),
+        "durationSec": _iso_duration(started, finished),
+        "tokens": None,
+        "grade": {
+            "score": reward, "maxScore": 1.0, "subscores": [],
+            "summary": f"{harness} · {model} · trial {trial_rel}",
+            "gate": None, "breakdown": None, "findings": None,
+        },
+        "failureReason": (str(exc)[:400] if exc else None),
+    })
+    return True
+
+
+def load_tb_leaderboard(picks: list[str]) -> None:
     vid = vendor("Terminal-Bench 2.1")
     picked = 0
-    for name in picks:
-        sub = df[df["task_name"] == name]
-        # Sort by reward (passed first) and pick 1 from each side. Prefer rows
-        # from distinct agents so the leaderboard shows model spread.
-        passed_rows = sub[sub["reward"] == 1].sort_values("duration_seconds")
-        failed_rows = sub[sub["reward"] == 0].sort_values("duration_seconds")
-        chosen = []
-        seen_agents: set[str] = set()
-        for _, r in passed_rows.iterrows():
-            if r["agent"] not in seen_agents:
-                chosen.append(r); seen_agents.add(r["agent"])
-            if len(chosen) >= RUNS_PER_TASK_PASS:
-                break
-        for _, r in failed_rows.iterrows():
-            if r["agent"] not in seen_agents and len(chosen) < RUNS_PER_TASK_PASS + RUNS_PER_TASK_FAIL:
-                chosen.append(r); seen_agents.add(r["agent"])
-        if not chosen and len(sub) > 0:
-            chosen = [sub.iloc[0]]
-        for r in chosen:
-            aid = agent(r["agent"], r["model"], vid)
-            tid = slug(f"tb-{name}")
-            try:
-                step_objs = json.loads(r["steps"])
-            except Exception:
+    for agent_dir in TB_AGENTS:
+        try:
+            top = hf_tree(f"submissions/terminal-bench/2.0/{agent_dir}")
+        except Exception as e:
+            print(f"  agent {agent_dir}: tree fetch failed ({e})")
+            continue
+        date_subdirs = [os.path.basename(e["path"]) for e in top
+                        if e["type"] == "directory" and not e["path"].endswith(".DS_Store")]
+        if not date_subdirs:
+            print(f"  agent {agent_dir}: no date subdirs")
+            continue
+        date_dir = sorted(date_subdirs)[0]  # take the earliest stamped run
+        try:
+            trial_entries = hf_tree(f"submissions/terminal-bench/2.0/{agent_dir}/{date_dir}")
+        except Exception as e:
+            print(f"  agent {agent_dir}: trial listing failed ({e})")
+            continue
+        trial_names = [os.path.basename(t["path"]) for t in trial_entries if t["type"] == "directory"]
+        for task in picks:
+            match = next((n for n in trial_names if n.startswith(f"{task}__")), None)
+            if not match:
                 continue
-            steps = [step_from_traj_obj(o, i) for i, o in enumerate(step_objs[:MAX_STEPS])]
-            reward = float(r["reward"]) if r["reward"] is not None else None
-            passed = reward is not None and reward >= 0.999
-            tokens = None
-            try:
-                tokens = {
-                    "prompt": int(r["input_tokens"]) if r["input_tokens"] == r["input_tokens"] else None,
-                    "completion": int(r["output_tokens"]) if r["output_tokens"] == r["output_tokens"] else None,
-                    "cached": int(r["cache_tokens"]) if r["cache_tokens"] == r["cache_tokens"] else None,
-                    "costUsd": float(r["cost_cents"]) / 100.0 if r["cost_cents"] == r["cost_cents"] else None,
-                }
-            except Exception:
-                tokens = None
-            runs.append({
-                "id": slug(f"tb-{name}-{r['trial_name'] or r['trial_id']}"),
-                "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
-                "status": "passed" if passed else "failed",
-                "passed": passed, "reward": reward,
-                "steps": steps, "stepCount": len(steps),
-                "artifacts": run_artifacts(steps),
-                "turns": sum(1 for s in steps if s["role"] == "agent"),
-                "durationSec": float(r["duration_seconds"]) if r["duration_seconds"] == r["duration_seconds"] else None,
-                "tokens": tokens,
-                "grade": {
-                    "score": reward, "maxScore": 1.0, "subscores": [],
-                    "summary": f"{r['agent']} · {r['model']} · trial {r['trial_name']}",
-                    "gate": None, "breakdown": None, "findings": None,
-                },
-                "failureReason": None,
-            })
-            picked += 1
-    print(f"  picked {picked} trajectories across {len(picks)} tasks")
+            if _load_one_trial(agent_dir, date_dir, match, task, vid):
+                picked += 1
+    print(f"  picked {picked} trajectories across {len(picks)} tasks × {len(TB_AGENTS)} agents")
 
 
 # ---------------------------------------------------------------------------
@@ -472,23 +578,24 @@ def main() -> None:
     load_tb_tasks(TASK_PICKS)
     print(f"  loaded {len(tasks)} tasks")
     print()
-    print("=== Terminal-Bench public trajectories (yoonholee) ===")
-    load_tb_trajectories(TASK_PICKS)
+    print("=== Terminal-Bench public trajectories (leaderboard) ===")
+    load_tb_leaderboard(TASK_PICKS)
     print(f"  total runs: {len(runs)}")
 
-    # Coverage notes — surface what was deliberately included / skipped.
     for v in vendors.values():
         if v["id"] == "terminal-bench-2-1":
             v["coverage"] = (
-                f"10 of 89 Terminal-Bench 2.1 task definitions (canonical source: "
-                f"harbor-framework/terminal-bench-2-1, Apache-2.0). Each task ships "
-                f"its full instruction.md, environment/Dockerfile, tests, and oracle "
-                f"solution. Trajectories are drawn from yoonholee/terminalbench-trajectories "
-                f"on HuggingFace (Apache-2.0) — 1 passed + 1 failed run per task, "
-                f"selected across distinct agent/model combinations so the leaderboard "
-                f"has comparable rows. Note: trajectories were originally generated against "
-                f"TB 2.0; 26 of 89 tasks were modified in 2.1, so a small number of "
-                f"runs may reference slightly different task content than the inlined files."
+                "10 of 89 Terminal-Bench 2.1 task definitions cloned from the canonical "
+                "source (harbor-framework/terminal-bench-2-1, Apache-2.0). Each task ships "
+                "its full instruction.md, environment/Dockerfile, tests, and oracle "
+                "solution. Trajectories are pulled from the official "
+                "harborframework/terminal-bench-2-leaderboard dataset on HuggingFace "
+                "(Apache-2.0) — one trial per agent harness across four families "
+                "(Claude, GPT, Gemini, GLM) for each task. Files are fetched lazily over "
+                "HTTP and cached under data/hf-leaderboard-cache/ (gitignored). Note: "
+                "leaderboard submissions are against TB 2.0; 26 of 89 tasks were modified "
+                "in 2.1, so a small number of runs may reference slightly different task "
+                "content than the inlined files."
             )
 
     showcase = build_showcase()

@@ -123,7 +123,48 @@ export default function AftInsights() {
 
   if (err) return <div className="p-8 text-rose-400">Failed to load AFT reports: {err}</div>
   if (!reports || !data || sel === null) return <Loading />
-  if (entries.length === 0) return <div className="p-8 text-zinc-400">No analyzed runs yet.</div>
+  if (entries.length === 0) {
+    return (
+      <>
+        <PageHeader
+          title="AFT insights"
+          subtitle="Cross-cutting view of every pre-computed AFT report"
+        />
+        <div className="p-8">
+          <div className="card mx-auto max-w-2xl p-7 text-sm leading-relaxed text-zinc-300">
+            <h2 className="mb-3 text-lg font-semibold text-white">No pre-computed AFT reports yet</h2>
+            <p>
+              The <strong>Agent Failure Taxonomy</strong> panel maps each run's
+              failure to four orthogonal axes — when it went wrong (Stage),
+              why (Root cause), what the agent did (Behaviour), and how bad
+              (Impact). This page aggregates across reports once they exist.
+            </p>
+            <p className="mt-3">
+              Two ways to add reports:
+            </p>
+            <ul className="mt-2 list-disc pl-6 text-zinc-400">
+              <li className="mb-1">
+                Open any trajectory and click <span className="text-zinc-200">Apply AFT analysis</span> —
+                you can use your own Anthropic / OpenAI API key (browser-only,
+                never uploaded) or a local <code className="rounded bg-ink-800 px-1">claude</code> /{' '}
+                <code className="rounded bg-ink-800 px-1">codex</code> CLI via{' '}
+                <code className="rounded bg-ink-800 px-1">npm run bridge</code>.
+              </li>
+              <li className="mb-1">
+                Pre-compute a batch with{' '}
+                <code className="rounded bg-ink-800 px-1">npm run aft:batch</code>{' '}
+                — writes <code className="rounded bg-ink-800 px-1">public/aft/&lt;runId&gt;.json</code>{' '}
+                files that load automatically on every visitor session, with no key required.
+              </li>
+            </ul>
+            <p className="mt-3 text-xs text-zinc-500">
+              See <code className="rounded bg-ink-800 px-1">bridge/README.md</code> for both paths.
+            </p>
+          </div>
+        </div>
+      </>
+    )
+  }
 
   const selected = sel
   const stateOf = (ids: string[]): TriState => {

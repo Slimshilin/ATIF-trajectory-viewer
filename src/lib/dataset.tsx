@@ -136,7 +136,7 @@ export function leaderboardByVendor(d: Dataset): { vendorId: string; rows: Agent
 }
 
 /** All tasks except the synthetic guided-tour task (URL-reachable only). */
-export function visibleTasks(d: Dataset, _isTencent: boolean = false) {
+export function visibleTasks(d: Dataset, _isMember: boolean = false) {
   return d.tasks.filter((t) => t.vendorId !== TOUR_VENDOR_ID)
 }
 

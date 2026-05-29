@@ -47,7 +47,8 @@ export interface Task {
   instruction?: string
   files: TaskFile[]
   metadata?: Record<string, unknown>
-  /** Access tier: 'sample' (Tencent login only) or 'example' (guest-visible). */
+  /** Optional access tier — forks that add auth can use this to gate UI;
+   *  the public build ignores it and renders everything as 'example'. */
   tier?: 'sample' | 'example'
 }
 

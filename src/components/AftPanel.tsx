@@ -32,7 +32,7 @@ export default function AftPanel({
   run: Run; task: Task; agent?: Agent; vendor?: Vendor
   activeStep: number; onJumpToStep: (i: number) => void; onReport: (r: AftReport | null) => void
 }) {
-  const { isTencent, record } = useAuth()
+  const { isMember, record } = useAuth()
   const reportKey = `tv-aft-report:${run.id}`
   const fbKey = `tv-aft-fb:${run.id}`
 
@@ -254,7 +254,7 @@ export default function AftPanel({
         </p>
       )}
 
-      {report && <Report report={report} activeStep={activeStep} onJumpToStep={onJumpToStep} feedback={feedback} setFb={setFb} canRecord={isTencent} />}
+      {report && <Report report={report} activeStep={activeStep} onJumpToStep={onJumpToStep} feedback={feedback} setFb={setFb} canRecord={isMember} />}
 
       {showRef && <AftReference onClose={() => setShowRef(false)} />}
     </div>

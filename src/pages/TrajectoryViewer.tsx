@@ -209,7 +209,7 @@ export default function TrajectoryViewer() {
   if (!task || !run) return <div className="p-8 text-zinc-400">Run not found.</div>
   const agent = lk.agent(run.agentId)
 
-  // Metric-only runs (e.g. Theta) ship aggregate numbers but no trajectory.
+  // Metric-only runs ship aggregate numbers but no trajectory.
   if (run.steps.length === 0) {
     return (
       <>
@@ -227,7 +227,7 @@ export default function TrajectoryViewer() {
         <div className="p-8">
           <div className="card p-6 text-sm text-zinc-400">
             <p>
-              This run is <span className="text-zinc-200">metrics-only</span> — the vendor exported
+              This run is <span className="text-zinc-200">metrics-only</span> — the source exported
               aggregate results without a step-by-step trajectory.
             </p>
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">

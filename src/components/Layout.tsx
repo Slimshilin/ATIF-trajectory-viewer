@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Rocket, FolderTree, Upload as UploadIcon, Sparkles,
+  Rocket, FolderTree, Upload as UploadIcon, Sparkles,
   PanelLeftClose, PanelLeftOpen, Compass, BarChart3, type LucideIcon,
 } from 'lucide-react'
 import { useDataset } from '../lib/dataset'
@@ -11,11 +11,12 @@ import { startTour, buildTourSteps } from '../lib/tour'
 const nav: { to: string; label: string; Icon: LucideIcon; end?: boolean }[] = [
   { to: '/quickstart', label: 'Quick start', Icon: Rocket },
   { to: '/showcase', label: 'Feature showcase', Icon: Sparkles },
-  { to: '/overview', label: 'Overview', Icon: LayoutDashboard },
-  { to: '/insights', label: 'AFT insights', Icon: BarChart3 },
   { to: '/tasks', label: 'Tasks', Icon: FolderTree },
+  { to: '/insights', label: 'AFT insights', Icon: BarChart3 },
   { to: '/upload', label: 'Upload', Icon: UploadIcon },
 ]
+// The /overview leaderboard page is still URL-reachable but intentionally
+// not surfaced in the sidebar — open it via /overview directly.
 
 const NAV_KEY = 'tv-nav-collapsed'
 
@@ -94,8 +95,19 @@ export default function Layout() {
         </button>
 
         {!collapsed && (
-          <div className="mt-auto w-full text-[11px] text-zinc-600">
-            ATIF Trajectory Viewer · Apache-2.0
+          <div className="mt-auto w-full space-y-1 text-[11px] text-zinc-600">
+            <div>
+              Built by{' '}
+              <a
+                href="https://github.com/Slimshilin"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                Lin Shi (Slimshilin)
+              </a>
+            </div>
+            <div>ATIF Trajectory Viewer · Apache-2.0</div>
           </div>
         )}
       </aside>
