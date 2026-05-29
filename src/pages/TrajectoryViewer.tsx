@@ -8,6 +8,7 @@ import GradePanel from '../components/GradePanel'
 import Markdown from '../components/Markdown'
 import EnvironmentStage from '../components/EnvironmentStage'
 import CodeBlock from '../components/CodeBlock'
+import { ArcGridView, tryParseArcGrids } from '../components/FileRenderer'
 import AftPanel from '../components/AftPanel'
 import type { AftReport } from '../lib/aft'
 import { FORMAT_LABELS, ROLE_STYLES, fmtDuration, fmtReward, fmtTokens, prettyModel } from '../lib/format'
@@ -607,9 +608,14 @@ function Field({ label, children, muted }: { label: string; children: React.Reac
   )
 }
 
-/** Render text as pretty JSON if it parses, otherwise as Markdown. */
+/** Render text as a colored ARC grid if it's a 2D number array, else pretty
+ *  JSON if it parses, else Markdown. */
 function SmartContent({ text, mono }: { text: string; mono?: boolean }) {
   const t = text.trim()
+  if (t.startsWith('{') || t.startsWith('[')) {
+    const grids = tryParseArcGrids(t)
+    if (grids) return <ArcGridView grids={grids} />
+  }
   if (mono && (t.startsWith('{') || t.startsWith('['))) {
     try {
       return <CodeBlock content={JSON.stringify(JSON.parse(t), null, 2)} language="json" lineNumbers={false} />

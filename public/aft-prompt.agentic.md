@@ -89,4 +89,4 @@ D (impact/how bad): D1 Recoverable mild · D2 Recoverable moderate · D3 Unrecov
 
 Adjudication: prefer 1 primary + ≤1 secondary mode. A6 only when the STOP DECISION is the locus. A4 = ran tests & accepted wrong; A6 = declared done without testing. B1 default unless knowledge demonstrably absent (B2). C7.1 no/surface validation; C7.2 validated-but-wrong; C7.3 saw a failing test & shipped. C2.4 solved a different problem; C2.1 logical error within the right problem. D4 later steps corrupted by earlier mistake; D5 stopped & shipped wrong unflagged.
 
-Source: Harbor Index — https://harbor-index.vercel.app/aft/
+

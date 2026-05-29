@@ -167,7 +167,7 @@ function prettyJson(content: string): string {
   }
 }
 
-export default function FileRenderer({ file }: { file: TaskFile }) {
+export default function FileRenderer({ file, siblings }: { file: TaskFile; siblings?: TaskFile[] }) {
   if (file.kind === 'image') return <ImageView file={file} />
   if (file.content == null) return <BinaryView file={file} />
   switch (file.kind) {
@@ -180,10 +180,37 @@ export default function FileRenderer({ file }: { file: TaskFile }) {
     case 'spreadsheet':
       return <SpreadsheetView content={file.content} />
     case 'json': {
-      // ARC-style grids ship as JSON 2D number arrays — render as colored cells
-      // (or as a tabbed pair of grids for ARC "examples" payloads).
+      // ARC-style grids ship as JSON 2D number arrays — render as colored cells.
       const grids = tryParseArcGrids(file.content)
-      if (grids) return <ArcGridView grids={grids} />
+      if (grids) {
+        // Side-by-side comparison: if the open file is an ARC grid AND the
+        // task ships a sibling `expected*.json` or `output*.json`, render the
+        // other one beside it so output ↔ expected are visible at a glance.
+        const companion = findArcCompanion(file, siblings ?? [])
+        if (companion) {
+          const companionGrids = tryParseArcGrids(companion.content ?? '')
+          if (companionGrids) {
+            return (
+              <div className="grid gap-5 lg:grid-cols-2">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
+                    <span className="rounded bg-ink-800 px-1.5 py-0.5 text-zinc-300">{file.path}</span>
+                  </div>
+                  <ArcGridView grids={grids} />
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
+                    <span className="rounded bg-ink-800 px-1.5 py-0.5 text-zinc-300">{companion.path}</span>
+                    <span className="text-emerald-400">expected ↔ actual</span>
+                  </div>
+                  <ArcGridView grids={companionGrids} />
+                </div>
+              </div>
+            )
+          }
+        }
+        return <ArcGridView grids={grids} />
+      }
       return <CodeBlock content={prettyJson(file.content)} language="json" path={file.path} />
     }
     case 'code':
@@ -191,6 +218,26 @@ export default function FileRenderer({ file }: { file: TaskFile }) {
     default:
       return <CodeBlock content={file.content} language={file.language} path={file.path} />
   }
+}
+
+/** Match an open ARC json file with its expected/actual counterpart in the
+ *  same task. We pair `output*.json` ↔ `expected*.json` first; failing that,
+ *  any other ARC-grid JSON file in the task. */
+function findArcCompanion(file: TaskFile, siblings: TaskFile[]): TaskFile | undefined {
+  const base = file.path.split('/').pop() ?? ''
+  const isOutput = /^output/i.test(base)
+  const isExpected = /^expected/i.test(base)
+  if (isOutput || isExpected) {
+    const want = isOutput ? /^expected/i : /^output/i
+    const direct = siblings.find((s) => s.path !== file.path && want.test(s.path.split('/').pop() ?? '') && s.kind === 'json')
+    if (direct) return direct
+  }
+  // Generic fallback: another JSON file in the same task that ALSO parses as an ARC grid.
+  for (const s of siblings) {
+    if (s.path === file.path || s.kind !== 'json' || !s.content) continue
+    if (tryParseArcGrids(s.content)) return s
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -214,10 +261,10 @@ const ARC_PALETTE = [
   '#870C25', // 9 maroon
 ]
 
-type Grid = number[][]
-interface NamedGrid { name: string; grid: Grid }
+export type Grid = number[][]
+export interface NamedGrid { name: string; grid: Grid }
 
-function isGrid(v: unknown): v is Grid {
+export function isArcGrid(v: unknown): v is Grid {
   if (!Array.isArray(v) || v.length === 0) return false
   const cols = Array.isArray(v[0]) ? (v[0] as unknown[]).length : -1
   if (cols <= 0 || cols > 40) return false
@@ -231,15 +278,15 @@ function isGrid(v: unknown): v is Grid {
   return true
 }
 
-function tryParseArcGrids(content: string): NamedGrid[] | null {
+export function tryParseArcGrids(content: string): NamedGrid[] | null {
   let v: unknown
   try { v = JSON.parse(content) } catch { return null }
   // single grid
-  if (isGrid(v)) return [{ name: 'grid', grid: v }]
+  if (isArcGrid(v)) return [{ name: 'grid', grid: v }]
   // {input, output}
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     const o = v as Record<string, unknown>
-    if (isGrid(o.input) && isGrid(o.output)) return [{ name: 'input', grid: o.input }, { name: 'output', grid: o.output }]
+    if (isArcGrid(o.input) && isArcGrid(o.output)) return [{ name: 'input', grid: o.input }, { name: 'output', grid: o.output }]
     // ARC train/test arrays
     if (Array.isArray(o.train) || Array.isArray(o.test)) {
       const out: NamedGrid[] = []
@@ -247,8 +294,8 @@ function tryParseArcGrids(content: string): NamedGrid[] | null {
         if (Array.isArray(arr)) {
           for (let i = 0; i < arr.length; i++) {
             const ex = arr[i] as { input?: unknown; output?: unknown }
-            if (ex && isGrid(ex.input)) out.push({ name: `${k}[${i}] input`, grid: ex.input })
-            if (ex && isGrid(ex.output)) out.push({ name: `${k}[${i}] output`, grid: ex.output })
+            if (ex && isArcGrid(ex.input)) out.push({ name: `${k}[${i}] input`, grid: ex.input })
+            if (ex && isArcGrid(ex.output)) out.push({ name: `${k}[${i}] output`, grid: ex.output })
           }
         }
       }
@@ -258,7 +305,7 @@ function tryParseArcGrids(content: string): NamedGrid[] | null {
   return null
 }
 
-function ArcGridView({ grids }: { grids: NamedGrid[] }) {
+export function ArcGridView({ grids }: { grids: NamedGrid[] }) {
   return (
     <div className="space-y-5 p-3">
       {grids.map((g) => <ArcGrid key={g.name} {...g} />)}

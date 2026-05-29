@@ -40,10 +40,9 @@ export function buildTourSteps(): TStep[] {
   return [
     // ---------------- Task page ----------------
     {
-      path: taskPath, sel: '[data-tour="task-instruction"]', side: 'right',
+      path: taskPath, sel: '[data-tour="task-env"]', side: 'right',
       title: 'The task',
-      note: 'It bundles every feature into one run so no step is ever empty.',
-      body: 'Every task page opens with the exact prompt the agent was given — the goal, the inputs it may use, and the success criteria. Everything below describes how agents attempted it.',
+      body: 'Every task page opens with the runtime environment (parsed from the Dockerfile) and a file tree below it. The instruction itself lives as <code>instruction.md</code> inside the Human view, alongside <code>task.toml</code>, <code>tests/</code>, and <code>solution/</code> — exactly as the benchmark ships it.',
     },
     {
       path: taskPath, sel: '[data-tour="task-env"]', side: 'top',

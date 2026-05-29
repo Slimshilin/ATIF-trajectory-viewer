@@ -152,13 +152,28 @@ export function parseShellWrites(command: string): ShellWrite[] {
       continue
     }
 
-    // --- heredocs: cat > path << [-]?['"]?TAG['"]? ... TAG ---
-    const hd = s.match(/^(?:\w+\s+)*?(?:cat|tee)\s+(>>?)\s*(\S+)\s*<<\s*(-?)\s*(['"]?)(\w+)\4\s*\n([\s\S]*?)\n\5\s*$/)
-    if (hd) {
-      const append = hd[1] === '>>'
-      const path = stripQuotes(hd[2])
-      const dedent = hd[3] === '-' // <<- strips leading tabs
-      let body = hd[6]
+    // --- heredocs (redirect FIRST, then heredoc tag):
+    //   cat > path << ['"]?TAG['"]?   …   TAG
+    const hd1 = s.match(/^(?:\w+\s+)*?(?:cat|tee)\s+(>>?)\s*(\S+)\s*<<\s*(-?)\s*(['"]?)(\w+)\4\s*\n([\s\S]*?)\n\5\s*$/)
+    if (hd1) {
+      const append = hd1[1] === '>>'
+      const path = stripQuotes(hd1[2])
+      const dedent = hd1[3] === '-' // <<- strips leading tabs
+      let body = hd1[6]
+      if (dedent) body = body.split('\n').map((l) => l.replace(/^\t+/, '')).join('\n')
+      out.push({ path, op: append ? 'append' : 'create', content: body })
+      continue
+    }
+    // --- heredocs (heredoc tag FIRST, then redirect):
+    //   cat << ['"]?TAG['"]? > path   …   TAG
+    //   cat << TAG >> path            …   TAG       (append)
+    // Bash accepts both orders; the body is identical.
+    const hd2 = s.match(/^(?:\w+\s+)*?(?:cat|tee)\s*<<\s*(-?)\s*(['"]?)(\w+)\2\s*(>>?)\s*(\S+)\s*\n([\s\S]*?)\n\3\s*$/)
+    if (hd2) {
+      const append = hd2[4] === '>>'
+      const path = stripQuotes(hd2[5])
+      const dedent = hd2[1] === '-'
+      let body = hd2[6]
       if (dedent) body = body.split('\n').map((l) => l.replace(/^\t+/, '')).join('\n')
       out.push({ path, op: append ? 'append' : 'create', content: body })
       continue

@@ -2,7 +2,6 @@ import { useParams } from 'react-router-dom'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/Layout'
 import { Loading, Pill, RangeStat, StatusBadge } from '../components/ui'
-import FileRenderer from '../components/FileRenderer'
 import EnvironmentPanel from '../components/EnvironmentPanel'
 import EnvFileBrowser from '../components/EnvFileBrowser'
 import { FORMAT_LABELS, fmtDuration, fmtPct, fmtReward, prettyModel } from '../lib/format'
@@ -32,13 +31,11 @@ export default function TaskDetail() {
         actions={task.difficulty ? <Pill className="capitalize">{task.difficulty}</Pill> : undefined}
       />
       <div className="space-y-8 p-8">
-        {/* Instruction */}
-        {task.instruction && (
-          <section className="card p-5" data-tour="task-instruction">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">Instruction</h2>
-            <FileRenderer file={{ path: 'instruction', kind: 'markdown', content: task.instruction }} />
-          </section>
-        )}
+        {/* Instruction is intentionally NOT shown here — visitors find it as
+            instruction.md in the file tree (Human view) below, like any other
+            file in a Harbor task. This avoids the duplication where the same
+            text rendered twice. The data-tour anchor is kept on the env panel
+            for the guided tour so the tutorial spotlight still has a target. */}
 
         {/* Environment (Dockerfile / compose interpretation) */}
         <EnvironmentPanel task={task} />

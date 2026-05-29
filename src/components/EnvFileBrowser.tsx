@@ -55,6 +55,15 @@ export default function EnvFileBrowser({
 
       {view === 'agent' && (
         <div className="mb-3 space-y-2">
+          {/* GitHub-style status legend */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+            <span className="uppercase tracking-wide text-zinc-600">Legend:</span>
+            <LegendChip cls="bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-500/40" letter="A" label="added by agent" />
+            <LegendChip cls="bg-amber-500/25 text-amber-200 ring-1 ring-amber-500/40" letter="M" label="modified" />
+            <LegendChip cls="bg-sky-500/25 text-sky-200 ring-1 ring-sky-500/40" letter="T" label="touched / read" />
+            <LegendChip cls="bg-rose-500/25 text-rose-200 ring-1 ring-rose-500/40" letter="D" label="deleted" />
+            <span className="text-zinc-600">files with no badge are env (provided by the Dockerfile / base image)</span>
+          </div>
           {(agentFs.baseImage || agentFs.workdir) && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               {agentFs.baseImage && <span>image <code className="font-mono text-zinc-300">{agentFs.baseImage}</code></span>}
@@ -98,7 +107,7 @@ export default function EnvFileBrowser({
                     <Pill>{current.kind}</Pill>
                   </div>
                 </div>
-                <FileRenderer file={current} />
+                <FileRenderer file={current} siblings={files} />
               </>
             ) : (
               <p className="text-sm text-zinc-500">Select a file.</p>
@@ -107,6 +116,15 @@ export default function EnvFileBrowser({
         </div>
       )}
     </section>
+  )
+}
+
+function LegendChip({ cls, letter, label }: { cls: string; letter: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={clsx('inline-grid h-4 w-4 place-items-center rounded font-mono text-[10px] font-bold', cls)}>{letter}</span>
+      <span className="text-zinc-500">{label}</span>
+    </span>
   )
 }
 

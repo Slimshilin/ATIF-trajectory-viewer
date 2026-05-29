@@ -129,4 +129,4 @@ Adjudication rules (final check after picking codes):
 - D4 (later steps corrupted by earlier mistake) vs D5 (stopped and shipped wrong result unflagged).
 - Lethality: highest C6.5, C9.1; medium C6.2, C2.2; lower C7.1, C7.2.
 
-Source: Harbor Index — https://harbor-index.vercel.app/aft/
+
