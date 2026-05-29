@@ -96,8 +96,11 @@ export interface Workspace {
   userTurns: number
 }
 
-const BASH_RE = /(^|_)(bash|shell|terminal|run_command|exec|execute)(_|$)/i
-const EDIT_RE = /(^|_)(edit|str_replace|write_file|create_file|edit_file|apply_patch|insert)(_|$)/i
+const BASH_RE = /(^|_)(bash|shell|terminal|run_command|run_shell_command|exec|execute)(_|$)/i
+// Editing tools — match common harness names across Claude Code, Codex, OpenHands.
+// Includes both snake_case (write_file, replace_file) and the capitalized
+// single-word forms (Write, Edit, Replace) that Claude Code emits.
+const EDIT_RE = /(^|_)(edit|write|replace|str_replace|write_file|create_file|edit_file|replace_file|apply_patch|insert)(_|$)/i
 
 /**
  * Parse a shell command and infer file-system mutations from it.
@@ -357,16 +360,41 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
       terminal.push(entry)
       if (!entry.output) pending.push(entry)
 
-      // file edits — explicit editor tools
+      // file edits — explicit editor tools.
+      // Supported shapes across harnesses:
+      //   Claude Code `Write`        { file_path, content }                     → create with full content
+      //   Claude Code `Edit`         { file_path, old_string, new_string }      → in-place substitution
+      //   Codex      `write_file`    { file_path, content }                     → create with full content
+      //   Codex      `replace_file`  { file_path, old_content, new_content }    → in-place substitution
+      //   Codex      `apply_patch`   { input: "*** Patch …" }                   → unified-diff patch
+      //   OpenHands  `str_replace`   { path, new_str, old_str }                 → substitution
       if (EDIT_RE.test(tc.name) && argObj) {
         const path = argObj.path || argObj.filepath || argObj.file_path || argObj.filename
         if (path) {
-          const op = argObj.command || (argObj.file_text ? 'create' : 'edit')
-          const content = argObj.file_text ?? argObj.content ?? argObj.new_str
-          if (content) assignContent(path, op, content, i)
-          else assignContent(path, op, undefined, i)
-          // `view` returns the file content as the tool output — link it
-          if (!content) viewLinks.push({ path, entry, step: i })
+          // Full-content overwrite (Write / write_file / create_file).
+          const fullContent = argObj.file_text ?? argObj.content ?? argObj.text
+          // Substitution shape (Edit / replace_file / str_replace).
+          const oldStr = argObj.old_string ?? argObj.old_str ?? argObj.old_content ?? argObj.search
+          const newStr = argObj.new_string ?? argObj.new_str ?? argObj.new_content ?? argObj.replace
+          let content: string | undefined = fullContent ?? undefined
+          let op: string = argObj.command || (fullContent ? 'create' : 'edit')
+          if (content == null && newStr != null) {
+            const prev = files.get(String(path))?.content
+            if (prev != null && oldStr != null) {
+              content = prev.includes(String(oldStr)) ? prev.replace(String(oldStr), String(newStr)) : prev + '\n' + String(newStr)
+            } else {
+              // No prior content tracked — render the substitution itself so the
+              // user at least sees what the agent wrote. Marked clearly.
+              content = oldStr != null
+                ? `// […prior content not captured…]\n// substitute: ${oldStr}\n// with:\n${newStr}`
+                : String(newStr)
+            }
+            op = 'edit'
+          }
+          if (content != null) assignContent(String(path), op, content, i)
+          else assignContent(String(path), op, undefined, i)
+          // `view` / read tools return content as the tool output — link it
+          if (content == null) viewLinks.push({ path: String(path), entry, step: i })
         }
       } else if (isBash && rawCmd) {
         // Shell-based writes: parse the command and apply its filesystem effect.

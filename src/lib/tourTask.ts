@@ -34,46 +34,46 @@ export const TOUR_STEPS = {
 const SVG_EXCEL_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
   <rect width="720" height="460" fill="#f4f4f5"/>
   <rect width="720" height="40" fill="#107c41"/>
-  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet — T12_model.xlsx</text>
+  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet (toy) - widget_sales.xlsx</text>
   <rect x="0" y="40" width="720" height="30" fill="#e7e5e4"/>
-  <text x="14" y="60" font-size="12" fill="#3f3f46">File · Edit · View · Formulas · Data · Review</text>
+  <text x="14" y="60" font-size="12" fill="#3f3f46">File . Edit . View . Formulas . Data . Review</text>
   <g font-size="12" fill="#27272a">
     <rect x="10" y="80" width="700" height="24" fill="#d4d4d8"/>
     <text x="20" y="96" font-weight="600">A</text><text x="105" y="96" font-weight="600">B</text>
     <text x="190" y="96" font-weight="600">C</text><text x="275" y="96" font-weight="600">D</text>
-    <text x="360" y="96" font-weight="600">E (Income·T12)</text>
+    <text x="360" y="96" font-weight="600">E (Total $)</text>
     <line x1="10" y1="104" x2="710" y2="104" stroke="#a1a1aa"/>
-    <text x="20" y="128">Unit</text><text x="105" y="128">Jul</text><text x="190" y="128">Aug</text>
-    <text x="275" y="128">Sep</text><text x="360" y="128">=AVERAGE(B:D)*12</text>
-    <text x="20" y="152">A-101</text><text x="105" y="152">2400</text><text x="190" y="152">2400</text>
-    <text x="275" y="152">2475</text><text x="360" y="152" fill="#15803d">29,700</text>
-    <text x="20" y="176">A-102</text><text x="105" y="176">2200</text><text x="190" y="176">2260</text>
-    <text x="275" y="176">2260</text><text x="360" y="176" fill="#15803d">26,880</text>
-    <text x="20" y="200">B-201</text><text x="105" y="200">3100</text><text x="190" y="200">3100</text>
-    <text x="275" y="200">3180</text><text x="360" y="200" fill="#15803d">37,520</text>
-    <text x="20" y="224">B-202</text><text x="105" y="224">2950</text><text x="190" y="224">2950</text>
-    <text x="275" y="224">2950</text><text x="360" y="224" fill="#15803d">35,400</text>
+    <text x="20" y="128">Widget</text><text x="105" y="128">Oct</text><text x="190" y="128">Nov</text>
+    <text x="275" y="128">Dec</text><text x="360" y="128">=(B:D sum) * price</text>
+    <text x="20" y="152">Widget-A</text><text x="105" y="152">12</text><text x="190" y="152">14</text>
+    <text x="275" y="152">18</text><text x="360" y="152" fill="#15803d">439.56</text>
+    <text x="20" y="176">Widget-B</text><text x="105" y="176">8</text><text x="190" y="176">11</text>
+    <text x="275" y="176">13</text><text x="360" y="176" fill="#15803d">464.00</text>
+    <text x="20" y="200">Widget-C</text><text x="105" y="200">21</text><text x="190" y="200">19</text>
+    <text x="275" y="200">24</text><text x="360" y="200" fill="#15803d">272.00</text>
+    <text x="20" y="224">Widget-D</text><text x="105" y="224">6</text><text x="190" y="224">7</text>
+    <text x="275" y="224">9</text><text x="360" y="224" fill="#15803d">659.78</text>
     <line x1="10" y1="240" x2="710" y2="240" stroke="#a1a1aa" stroke-dasharray="3"/>
     <text x="20" y="262" font-weight="700">TOTAL</text>
-    <text x="360" y="262" font-weight="700" fill="#15803d">129,500</text>
+    <text x="360" y="262" font-weight="700" fill="#15803d">1,835.34</text>
   </g>
   <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
-  <text x="14" y="450" font-size="11" fill="white">Sheet1 · T12 · Expenses        Ready</text>
+  <text x="14" y="450" font-size="11" fill="white">Q4 . AcmeDemo (fictitious)        Ready</text>
 </svg>`
 
 const SVG_EXCEL_CONFIRM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
   <rect width="720" height="460" fill="#f4f4f5"/>
   <rect width="720" height="40" fill="#107c41"/>
-  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet — T12_model.xlsx — verified</text>
+  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet (toy) - widget_sales.xlsx - verified</text>
   <rect x="100" y="120" width="520" height="220" rx="10" fill="white" stroke="#a1a1aa" stroke-width="1.5"/>
   <circle cx="360" cy="190" r="36" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
   <path d="M345 192 l12 12 l24 -28" stroke="#15803d" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   <text x="360" y="262" font-size="18" fill="#27272a" text-anchor="middle" font-weight="600">Totals verified</text>
-  <text x="360" y="290" font-size="13" fill="#52525b" text-anchor="middle">T12 income reconciled to 129,500</text>
+  <text x="360" y="290" font-size="13" fill="#52525b" text-anchor="middle">Toy Q4 total reconciled to $1,835.34</text>
   <rect x="280" y="306" width="160" height="32" rx="6" fill="#15803d"/>
   <text x="360" y="327" font-size="13" fill="white" text-anchor="middle" font-weight="600">OK</text>
   <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
-  <text x="14" y="450" font-size="11" fill="white">Sheet1 · T12 · Expenses        Verified</text>
+  <text x="14" y="450" font-size="11" fill="white">Q4 . AcmeDemo (fictitious)        Verified</text>
 </svg>`
 
 // Encode a Unicode string as base64 — `btoa` only accepts Latin1, but our SVG
@@ -94,63 +94,61 @@ const agents: Agent[] = [
   { id: 'tour-claude-sonnet', harness: 'Claude Code', model: 'claude-sonnet-4-6', family: 'Anthropic', vendorId: TOUR_VENDOR_ID },
 ]
 
-const INSTRUCTION = `# Q3 Portfolio Reconciliation & Memo
+const INSTRUCTION = `# AcmeDemo Inc. · Widget Sales Recap (toy demo task)
 
-You are working inside a containerised finance workspace. Complete all four parts:
+> **Note:** this is a fully fictitious task used only to exercise every viewer
+> feature in a single run. AcmeDemo Inc., its widgets, and all numbers below
+> are made up — there is no real customer, system, or data here.
 
-1. **Reconcile** \`data/rent_roll.csv\` against the trailing-12-month (T12) figures and
-   build a clean T12 spreadsheet with **live formulas** (income = last-3-months × 4,
-   NOI = revenue − expenses).
-2. **Fetch the latest figures** from the internal dashboard at
-   \`http://dashboard:8091/portfolio/q3\` and use the *current* revenue number
-   (do **not** rely on the cached CSV value).
-3. **Verify** the reconciliation in the desktop Excel app (screenshot the result).
-4. **Write a one-page memo** in markdown summarising the reconciliation, including a
-   **month-over-month variance table**.
+You are working inside a tiny demo container. Complete all four parts:
 
-The grader checks T12 accuracy, dashboard freshness, memo completeness, and formatting.`
+1. **Build** a sales sheet from \`data/widget_sales.csv\` (4 toy widgets) with a
+   live total formula.
+2. **Fetch** the current quarter total from a demo dashboard at
+   \`http://demo-dashboard.local/q4\` and use that figure, not the CSV.
+3. **Verify** the result on the desktop spreadsheet app (screenshot it).
+4. **Write a one-paragraph recap** in markdown summarising the totals.
 
-const DOCKERFILE = `FROM python:3.11-slim
+The toy grader checks: cell accuracy, dashboard freshness, recap completeness,
+and basic formatting.`
+
+const DOCKERFILE = `# Toy demo image — not used in production
+FROM python:3.11-slim
 WORKDIR /app
 COPY workspace/ /app/
 RUN pip install --no-cache-dir pandas openpyxl requests
-EXPOSE 8091
-CMD ["python", "analysis/reconcile.py"]`
+CMD ["python", "analysis/build_sheet.py"]`
 
-const COMPOSE = `services:
+const COMPOSE = `# Toy compose — illustrative only, all hostnames are demo-local
+services:
   app:
     build: .
     working_dir: /app
-    depends_on: [db, dashboard]
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: portfolio
-    ports: ["5432:5432"]
-  dashboard:
+    depends_on: [demo-dashboard]
+  demo-dashboard:
     image: nginx:alpine
     ports: ["8091:80"]`
 
 const files: Task['files'] = [
   { path: 'Dockerfile', kind: 'code', language: 'docker', content: DOCKERFILE },
   { path: 'docker-compose.yml', kind: 'code', language: 'yaml', content: COMPOSE },
-  { path: 'workspace/README.md', kind: 'markdown', content: '# Portfolio workspace\n\nRun `python analysis/reconcile.py` to rebuild the T12 model.\nThe live dashboard is served on `:8091`.' },
-  { path: 'workspace/data/rent_roll.csv', kind: 'text', content: 'unit,jul,aug,sep,monthly_rent\nA-101,2400,2400,2475,2475\nA-102,2200,2260,2260,2260\nB-201,3100,3100,3180,3180\nB-202,2950,2950,2950,3010' },
-  { path: 'workspace/analysis/reconcile.py', kind: 'code', language: 'python', content: '# stub — the agent fills this in\nimport pandas as pd\n\ndef build_t12(df):\n    """income = last 3 months * 4; NOI = revenue - expenses"""\n    raise NotImplementedError' },
-  { path: 'workspace/(4)_(Evaluation)_RUBRIC.md', kind: 'markdown', content: '# Evaluation rubric\n\n- T12 cell accuracy — 40%\n- Dashboard freshness (use live figure) — 25%\n- Memo completeness (incl. variance table) — 25%\n- Formatting (bold totals, currency) — 10%' },
+  { path: 'workspace/README.md', kind: 'markdown', content: '# AcmeDemo workspace (toy demo)\n\nThis tree is purely illustrative — every value is fabricated for the viewer tour.\nRun `python analysis/build_sheet.py` to (in this fiction) build the sales sheet.\n' },
+  { path: 'workspace/data/widget_sales.csv', kind: 'text', content: 'widget,oct,nov,dec,unit_price\nWidget-A,12,14,18,9.99\nWidget-B,8,11,13,14.50\nWidget-C,21,19,24,4.25\nWidget-D,6,7,9,29.99' },
+  { path: 'workspace/analysis/build_sheet.py', kind: 'code', language: 'python', content: '# Toy stub — the agent fills this in during the demo trajectory.\nimport pandas as pd\n\ndef build_sales_sheet(df):\n    """total = sum(oct..dec) * unit_price."""\n    raise NotImplementedError\n' },
+  { path: 'workspace/RUBRIC.md', kind: 'markdown', content: '# Toy evaluation rubric (demo)\n\n- Cell accuracy — 40%\n- Dashboard freshness (use the live figure) — 25%\n- Recap completeness — 25%\n- Formatting (bold totals, units) — 10%\n' },
 ]
 
 const task: Task = {
   id: TOUR_TASK_ID,
   vendorId: TOUR_VENDOR_ID,
-  title: '🎬 Guided Tour — Feature Demo (synthetic)',
+  title: '🎬 Guided Tour — AcmeDemo widget task (fictitious)',
   source: 'harbor',
   category: 'Tour',
   difficulty: 'demo',
   instruction: INSTRUCTION,
   files,
   tier: 'example',
-  metadata: { synthetic: true },
+  metadata: { synthetic: true, disclaimer: 'All numbers, hostnames, and company names in this task are fabricated for the tour.' },
 }
 
 // ---- the hero trajectory: one run that touches every artifact type ---------
@@ -158,42 +156,42 @@ const tc = (name: string, args: object): NonNullable<Step['toolCalls']> => [{ na
 
 const steps: Step[] = [
   { index: 0, role: 'user', text: INSTRUCTION, tSec: 0 },
-  { index: 1, role: 'assistant', reasoning: 'Plan: (1) inspect the workspace and rent-roll, (2) build the T12 sheet with live formulas, (3) pull the current revenue from the dashboard, (4) verify in the desktop app, (5) write the memo.', text: 'Starting with the workspace layout and the rent-roll data.', tSec: 6 },
-  { index: 2, role: 'assistant', toolCalls: tc('bash', { command: 'ls -la /app && ls /app/data' }), observation: 'Dockerfile  analysis/  data/  README.md\nrent_roll.csv  (4)_(Evaluation)_RUBRIC.md', tSec: 14 },
-  { index: 3, role: 'assistant', toolCalls: tc('bash', { command: 'cat /app/data/rent_roll.csv' }), observation: 'unit,jul,aug,sep,monthly_rent\nA-101,2400,2400,2475,2475\n...4 units total', tSec: 25 },
+  { index: 1, role: 'assistant', reasoning: 'Plan: (1) inspect the AcmeDemo workspace and widget sales data, (2) build a sales sheet with a live total formula, (3) pull the current quarter total from the demo dashboard, (4) verify on the desktop app, (5) write the recap paragraph.', text: 'Starting with the workspace layout and the widget sales data.', tSec: 6 },
+  { index: 2, role: 'assistant', toolCalls: tc('bash', { command: 'ls -la /app && ls /app/data' }), observation: 'Dockerfile  analysis/  data/  README.md\nwidget_sales.csv  RUBRIC.md', tSec: 14 },
+  { index: 3, role: 'assistant', toolCalls: tc('bash', { command: 'cat /app/data/widget_sales.csv' }), observation: 'widget,oct,nov,dec,unit_price\nWidget-A,12,14,18,9.99\n...4 widgets total', tSec: 25 },
   {
-    index: 4, role: 'assistant', text: 'Implementing the reconciliation script.',
-    toolCalls: tc('create_file', { path: 'analysis/reconcile.py', file_text: 'import pandas as pd\n\ndef build_t12(df):\n    df["income"] = df[["jul","aug","sep"]].mean(axis=1) * 12\n    df["noi"] = df["income"] - df.get("expenses", 0)\n    return df\n' }),
-    observation: 'Wrote analysis/reconcile.py (8 lines).',
-    mutations: [{ kind: 'file', tool: 'create_file', target: 'analysis/reconcile.py', summary: 'created reconcile.py' }],
+    index: 4, role: 'assistant', text: 'Implementing the toy sheet-builder script.',
+    toolCalls: tc('create_file', { path: 'analysis/build_sheet.py', file_text: 'import pandas as pd\n\ndef build_sales_sheet(df):\n    df["units"] = df[["oct","nov","dec"]].sum(axis=1)\n    df["total"] = df["units"] * df["unit_price"]\n    return df\n' }),
+    observation: 'Wrote analysis/build_sheet.py (6 lines).',
+    mutations: [{ kind: 'file', tool: 'create_file', target: 'analysis/build_sheet.py', summary: 'created build_sheet.py' }],
     tSec: 70,
   },
   {
-    index: 5, role: 'assistant', text: 'Building the T12 grid from the rent roll.',
-    edits: [{ t: 'sheet', target: 'T12_model.xlsx', sheet: 'T12', anchor: 'A1', cells: [['Unit', 'Jul', 'Aug', 'Sep', 'Income (T12)'], ['A-101', '2400', '2400', '2475', '29700'], ['A-102', '2200', '2260', '2260', '8920'], ['B-201', '3100', '3100', '3180', '37520'], ['B-202', '2950', '2950', '2950', '35400']] }],
+    index: 5, role: 'assistant', text: 'Building the sales grid from the widget data.',
+    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A1', cells: [['Widget', 'Oct', 'Nov', 'Dec', 'Total ($)'], ['Widget-A', '12', '14', '18', '439.56'], ['Widget-B', '8', '11', '13', '464.00'], ['Widget-C', '21', '19', '24', '272.00'], ['Widget-D', '6', '7', '9', '659.78']] }],
     tSec: 120,
   },
   {
-    index: 6, role: 'assistant', text: 'Adding live formulas for income and NOI.',
-    edits: [{ t: 'formula', target: 'T12_model.xlsx', sheet: 'T12', formulas: [{ c: 'E2', f: '=AVERAGE(B2:D2)*12' }, { c: 'E6', f: '=SUM(E2:E5)' }, { c: 'F6', f: '=E6-Expenses!B6' }] }],
+    index: 6, role: 'assistant', text: 'Adding live formulas for unit count and totals.',
+    edits: [{ t: 'formula', target: 'widget_sales.xlsx', sheet: 'Q4', formulas: [{ c: 'E2', f: '=(B2+C2+D2)*F2' }, { c: 'E6', f: '=SUM(E2:E5)' }] }],
     tSec: 165,
   },
   {
     index: 7, role: 'assistant', text: 'Totals row and formatting.',
-    edits: [{ t: 'sheet', target: 'T12_model.xlsx', sheet: 'T12', anchor: 'A6', cells: [['TOTAL', '', '', '', '111540']] }],
-    mutations: [{ kind: 'spreadsheet', tool: 'excel_write', target: 'T12_model.xlsx', summary: 'wrote totals row' }],
+    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A6', cells: [['TOTAL', '', '', '', '1835.34']] }],
+    mutations: [{ kind: 'spreadsheet', tool: 'excel_write', target: 'widget_sales.xlsx', summary: 'wrote totals row' }],
     tSec: 200,
   },
   {
-    index: 8, role: 'assistant', text: 'Fetching the live dashboard figure.',
-    toolCalls: tc('web_fetch', { url: 'http://dashboard:8091/portfolio/q3' }),
-    edits: [{ t: 'web', url: 'http://dashboard:8091/portfolio/q3', content: '# Q3 Portfolio Dashboard\n\n**Live revenue (Q3): $114,200**  _(updated 2 hours ago)_\n\n| Metric | Value |\n| --- | --- |\n| Occupancy | 96.5% |\n| NOI margin | 61% |\n| Delinquency | 1.2% |\n\n> Note: the CSV snapshot ($111,540) is stale — use the live figure above.' }],
+    index: 8, role: 'assistant', text: 'Fetching the live demo dashboard figure.',
+    toolCalls: tc('web_fetch', { url: 'http://demo-dashboard.local/q4' }),
+    edits: [{ t: 'web', url: 'http://demo-dashboard.local/q4', content: '# AcmeDemo · Q4 Widget Dashboard (toy demo)\n\n**Live Q4 total: $1,902.10**  _(updated 2 hours ago — fictitious)_\n\n| Metric | Value |\n| --- | --- |\n| Units sold | 162 |\n| Avg price | $11.74 |\n| Top widget | Widget-D |\n\n> Note: the CSV snapshot ($1,835.34) is stale — use the live figure above.' }],
     tSec: 250,
   },
   {
-    index: 9, role: 'assistant', text: 'Opening the desktop Excel app to verify.',
+    index: 9, role: 'assistant', text: 'Opening the desktop spreadsheet app to verify.',
     toolCalls: tc('computer', { action: 'screenshot' }),
-    edits: [{ t: 'computer', action: 'open', coord: [640, 360], text: 'Excel' }, { t: 'screenshot', url: SHOT_A }],
+    edits: [{ t: 'computer', action: 'open', coord: [640, 360], text: 'Spreadsheet' }, { t: 'screenshot', url: SHOT_A }],
     tSec: 300,
   },
   {
@@ -202,14 +200,14 @@ const steps: Step[] = [
     tSec: 330,
   },
   {
-    index: 11, role: 'assistant', text: 'Drafting the memo.',
-    edits: [{ t: 'doc', target: 'memo.md', op: 'heading', text: 'Q3 Portfolio Reconciliation Memo', level: 1 }],
+    index: 11, role: 'assistant', text: 'Drafting the demo recap.',
+    edits: [{ t: 'doc', target: 'recap.md', op: 'heading', text: 'AcmeDemo · Q4 Widget Sales Recap (toy)', level: 1 }],
     tSec: 360,
   },
   {
-    index: 12, role: 'assistant', text: 'Memo body.',
-    edits: [{ t: 'doc', target: 'memo.md', op: 'para', text: 'The T12 reconciliation ties out across all four units. Trailing-12 income totals $111,540 per the rent roll. See the attached T12 model for the live formulas.' }],
-    mutations: [{ kind: 'document', tool: 'write_file', target: 'memo.md', summary: 'wrote memo body' }],
+    index: 12, role: 'assistant', text: 'Recap body.',
+    edits: [{ t: 'doc', target: 'recap.md', op: 'para', text: 'Q4 widget sales total $1,835.34 across the four toy widgets. See the attached sheet for the breakdown.' }],
+    mutations: [{ kind: 'document', tool: 'write_file', target: 'recap.md', summary: 'wrote recap body' }],
     tSec: 395,
   },
   {
@@ -217,7 +215,7 @@ const steps: Step[] = [
     edits: [{ t: 'answer', content: '**Done.** Built `T12_model.xlsx` with live formulas, verified in the desktop app, and wrote `memo.md`. Trailing-12 income: **$111,540**.' }],
     tSec: 410,
   },
-  { index: 14, role: 'assistant', text: 'Reconciliation complete and memo saved.', tSec: 418 },
+  { index: 14, role: 'assistant', text: 'Toy sheet built and recap saved.', tSec: 418 },
 ]
 
 const heroRun: Run = {
@@ -233,35 +231,35 @@ const heroRun: Run = {
   stepCount: steps.length,
   turns: 1,
   durationSec: 418,
-  artifacts: ['T12_model.xlsx', 'memo.md', 'analysis/reconcile.py'],
+  artifacts: ['widget_sales.xlsx', 'recap.md', 'analysis/build_sheet.py'],
   tokens: { prompt: 48200, completion: 9100, costUsd: 0.41 },
-  failureReason: 'Used the stale CSV revenue ($111,540) instead of the live dashboard figure ($114,200); memo omitted the variance table.',
+  failureReason: 'Used the stale CSV total ($1,835.34) instead of the live demo-dashboard figure ($1,902.10); recap omitted the per-widget breakdown.',
   grade: {
     score: 0.62,
     maxScore: 1,
-    gate: { 'workspace builds': true, 'T12 reconciled': true, 'dashboard figure current': false, 'memo complete': false },
+    gate: { 'workspace builds': true, 'sheet built': true, 'dashboard figure current': false, 'recap complete': false },
     subscores: [
-      { label: 'T12 cell accuracy', score: 0.92 },
+      { label: 'Cell accuracy', score: 0.92 },
       { label: 'Dashboard freshness', score: 0.0 },
-      { label: 'Memo completeness', score: 0.5 },
+      { label: 'Recap completeness', score: 0.5 },
       { label: 'Formatting', score: 0.8 },
     ],
-    summary: `### Verifier log
+    summary: `### Toy verifier log (demo only)
 
 \`\`\`
 [1/4] workspace builds .......... PASS
-[2/4] T12 cell accuracy ......... PASS  (37/40 cells exact; 0.92)
-[3/4] dashboard freshness ....... FAIL  used 111540 (CSV) — live value is 114200
-[4/4] memo completeness ......... PARTIAL  variance table missing (0.5)
+[2/4] cell accuracy ............. PASS  (37/40 cells exact; 0.92)
+[3/4] dashboard freshness ....... FAIL  used 1835.34 (CSV) — live value is 1902.10
+[4/4] recap completeness ........ PARTIAL  per-widget breakdown missing (0.5)
 \`\`\`
 
-**Weighted score: 0.62 / 1.00.** The model reconciled the trailing-12 figures
-correctly and formatted the sheet, but reported the **stale CSV revenue** rather
-than the live dashboard number it had successfully fetched, and the memo omitted
-the required month-over-month variance table.`,
+**Weighted score: 0.62 / 1.00.** The toy agent built the widget-sales sheet
+correctly and formatted it, but reported the **stale CSV total** instead of the
+live demo-dashboard number it had successfully fetched, and the recap omitted
+the per-widget breakdown.`,
     findings: [
-      { category: 'Data freshness', severity: 'critical', summary: 'Reported stale revenue', detail: 'Live dashboard returned $114,200 but the memo and answer used the CSV snapshot $111,540.' },
-      { category: 'Deliverable completeness', severity: 'major', summary: 'Memo missing variance table', detail: 'The rubric requires a month-over-month variance table; the memo had only a prose summary.' },
+      { category: 'Data freshness', severity: 'critical', summary: 'Reported stale total', detail: 'Live demo dashboard returned $1,902.10 but the recap and final answer used the CSV snapshot $1,835.34.' },
+      { category: 'Deliverable completeness', severity: 'major', summary: 'Recap missing per-widget breakdown', detail: 'The toy rubric requires a per-widget total table; the recap had only a one-line summary.' },
     ],
   },
 }

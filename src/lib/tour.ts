@@ -24,7 +24,13 @@ interface TStep {
   action?: () => void // run before highlighting (switch a tab / toggle a view)
 }
 
-const taskPath = `/tasks/${TOUR_TASK_ID}`
+// The task-page portion of the tour walks a REAL benchmark task so visitors
+// see actual task.toml / instruction / environment content rather than a
+// synthetic demo. The trajectory-stage portion stays on the curated tour run
+// so every artifact type (spreadsheet, web, screenshots, doc, answer) is
+// guaranteed to render — no real benchmark trajectory has all of them.
+const REAL_TASK_ID = 'hi-spreadsheetbench-sort-spreadsheet-by-helper'
+const taskPath = `/tasks/${REAL_TASK_ID}`
 const runAt = (step?: number) => `/tasks/${TOUR_TASK_ID}/runs/${TOUR_RUN_ID}${step != null ? `?step=${step}` : ''}`
 
 const clickTab = (p: string) => (document.querySelector(`[data-tour="tab-${p}"]`) as HTMLElement | null)?.click()
@@ -41,28 +47,23 @@ export function buildTourSteps(): TStep[] {
     },
     {
       path: taskPath, sel: '[data-tour="task-env"]', side: 'top',
-      title: 'Environment — from the Dockerfile / compose',
-      body: 'For a containerised task we parse the Dockerfile + docker-compose: the base image (<code>python:3.11-slim</code>), the services the agent can reach (a Postgres <code>db</code> and an nginx <code>dashboard</code> on :8091), and which files are copied in.',
+      title: 'Environment — from the Dockerfile',
+      body: 'For a containerised task we parse the <code>Dockerfile</code> and surface the base image plus the services the agent can reach. This is auto-derived from the files in <code>environment/</code>.',
     },
     {
       path: taskPath, sel: '[data-tour="task-files"]', side: 'top',
       title: 'Files — the Human view', action: () => clickSel('[data-tour="task-view-human"]'),
-      body: '<b>👤 Human view</b> is the raw task repo exactly as provided — <code>workspace/</code>, the rent-roll CSV, the stub script, the rubric. Browse it as a foldable tree with type icons.',
+      body: '<b>👤 Human view</b> is the raw task directory exactly as a benchmark author shipped it — <code>task.toml</code>, <code>instruction.md</code>, the <code>environment/</code> tree (Dockerfile + inputs), the <code>solution/</code> (oracle answer), and the <code>tests/</code>. Browse it as a foldable tree with type icons.',
     },
     {
       path: taskPath, sel: '[data-tour="task-files"]', side: 'top',
       title: 'Now switch to the Agent view', action: () => clickSel('[data-tour="task-view-agent"]'),
-      body: 'We just clicked <b>🤖 Agent view</b> (top-left of this panel). Same files, but <i>as the container sees them</i>: the Dockerfile <code>COPY workspace/ /app/</code> rule remaps the paths, and status dots mark env / created / modified files. Toggle the two to see exactly what the agent worked against.',
-    },
-    {
-      path: taskPath, sel: '[data-tour="task-stats"]', side: 'top',
-      title: 'Across runs', note: 'Four runs here — 2 pass, 2 fail — with real durations.',
-      body: 'When several agents/models ran a task, their reward, step count, and time are summarised as <b>max · avg · min</b> with the pass rate — so you can compare models at a glance. Note the spread: a clean Codex pass vs. a slow Sonnet failure.',
+      body: 'We just clicked <b>🤖 Agent view</b> (top-left of this panel). Same files, but <i>as the container sees them</i>: the <code>Dockerfile COPY</code> rules remap paths into <code>/app/…</code>, and status dots mark <i>env</i> / <i>created</i> / <i>modified</i> entries. Toggle the two to see exactly what the agent worked against.',
     },
     {
       path: taskPath, sel: '[data-tour="task-runs"]', side: 'top',
-      title: 'The runs — let’s open one',
-      body: 'Each row is one agent run: model, harness (Claude Code / Codex / OpenHands…), status, reward, steps, duration. We’ll open the <b>Claude Code · partial</b> run — it did most of the work but slipped, which makes the analysis interesting.',
+      title: 'The runs',
+      body: 'Each row is one agent run: model, harness (Claude Code / Codex / Gemini CLI / Terminus / Qwen …), status, reward, steps, duration. Real benchmark trajectories ship here — open a run to play it back step by step. For the rest of the tour we hop to a synthetic demo run that exercises every artifact type at once.',
     },
 
     // ---------------- Trajectory mechanics ----------------
