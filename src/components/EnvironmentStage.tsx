@@ -27,6 +27,7 @@ type ArtifactRef =
   | { kind: 'web'; id: 'web'; label: string }
   | { kind: 'computer'; id: 'computer'; label: string }
   | { kind: 'answer'; id: 'answer'; label: string }
+  | { kind: 'arc'; id: 'arc'; label: string }
 
 function baseName(p?: string) {
   if (!p) return 'sheet'
@@ -228,8 +229,83 @@ function AnswerView({ answer }: { answer: AnswerState }) {
 
 // --- Stage shell -----------------------------------------------------------
 
-function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: number }) {
+/** Hard-coded ARC AGI detection — when a task ships an `expected.json` whose
+ *  content parses as an ARC-shape 2D number array (palette 0–9), or its id
+ *  starts with `hi-arcagi`, we surface a dedicated grid-comparison panel.
+ *  This is intentionally task-specific: ARC payloads aren't representable as
+ *  any of the generic "edit" shapes the stage normally handles. */
+function findArcExpected(task?: Task): number[][] | null {
+  if (!task) return null
+  const candidates = task.files.filter((f) => /(^|\/)(expected|solution)\.json$/i.test(f.path))
+  for (const f of candidates) {
+    if (!f.content) continue
+    try {
+      const v = JSON.parse(f.content)
+      if (isArcShape(v)) return v as number[][]
+    } catch { /* not JSON */ }
+  }
+  return null
+}
+
+function isArcShape(v: unknown): v is number[][] {
+  if (!Array.isArray(v) || v.length === 0 || v.length > 40) return false
+  const cols = Array.isArray(v[0]) ? (v[0] as unknown[]).length : -1
+  if (cols <= 0 || cols > 40) return false
+  for (const row of v) {
+    if (!Array.isArray(row) || row.length !== cols) return false
+    for (const cell of row) {
+      if (typeof cell !== 'number' || !Number.isInteger(cell) || cell < 0 || cell > 9) return false
+    }
+  }
+  return true
+}
+
+/** Walk the trajectory up to `upto` and find the agent's latest write to a
+ *  file matching `output.json` — covers write_file / Write tool calls, shell
+ *  `cat > … << EOF` heredocs, and `python3 -c` style one-liners. */
+function findArcAgentOutput(steps: Step[], upto: number): number[][] | null {
+  for (let i = Math.min(upto, steps.length - 1); i >= 0; i--) {
+    const s = steps[i]
+    for (const tc of s.toolCalls ?? []) {
+      let args: Record<string, unknown> = {}
+      try { args = JSON.parse(tc.args ?? '{}') } catch { /* fall through */ }
+      const path = (args.file_path ?? args.path ?? args.filepath) as string | undefined
+      const content = (args.content ?? args.new_content ?? args.file_text) as string | undefined
+      if (typeof path === 'string' && /output\.json$/i.test(path) && typeof content === 'string') {
+        try {
+          const v = JSON.parse(content)
+          if (isArcShape(v)) return v as number[][]
+        } catch { /* keep scanning */ }
+      }
+      // Shell write captured in a bash command string (keystrokes covers
+      // Terminus-style trajectories that ship a `{keystrokes, duration}` arg).
+      const cmd = (args.command ?? args.cmd ?? args.keystrokes ?? args.input) as string | undefined
+      if (typeof cmd === 'string' && /output\.json/.test(cmd)) {
+        const hd = cmd.match(/cat\s*<<\s*['"]?(\w+)['"]?\s*>?\s*\S*output\.json[\s\S]*?\n([\s\S]+?)\n\1\s*$/m)
+          || cmd.match(/cat\s*>?\s*\S*output\.json\s*<<\s*['"]?(\w+)['"]?\s*\n([\s\S]+?)\n\1\s*$/m)
+          || cmd.match(/echo\s+(?:-\w+\s+)?['"]([\s\S]+?)['"]\s*>+\s*\S*output\.json/)
+        if (hd) {
+          try {
+            const v = JSON.parse(hd[2] ?? hd[1])
+            if (isArcShape(v)) return v as number[][]
+          } catch { /* not parseable */ }
+        }
+      }
+    }
+  }
+  return null
+}
+
+function ArtifactViewer({ steps, activeStep, task }: { steps: Step[]; activeStep: number; task?: Task }) {
   const stage = useMemo(() => reconstructStage(steps, activeStep), [steps, activeStep])
+
+  // ARC-AGI hard-coded panel: expected grid (always) + agent's latest output.
+  const arcExpected = useMemo(() => findArcExpected(task), [task])
+  const arcAgent = useMemo(
+    () => (arcExpected ? findArcAgentOutput(steps, activeStep) : null),
+    [arcExpected, steps, activeStep],
+  )
+  const isArc = !!arcExpected
 
   // bounds for computer coordinate scaling (max coord across whole run)
   const compBounds = useMemo(() => {
@@ -246,6 +322,7 @@ function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: numb
 
   const artifacts = useMemo<ArtifactRef[]>(() => {
     const list: ArtifactRef[] = []
+    if (isArc) list.push({ kind: 'arc', id: 'arc', label: 'ARC grid (expected ↔ agent)' })
     stage.sheets.forEach((s) => list.push({ kind: 'sheet', id: s.key, label: baseName(s.target) + (s.name ? ` · ${s.name}` : '') }))
     stage.docs.forEach((d) => list.push({ kind: 'doc', id: d.key, label: d.name }))
     if (stage.web) list.push({ kind: 'web', id: 'web', label: 'Web page' })
@@ -253,7 +330,7 @@ function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: numb
       list.push({ kind: 'computer', id: 'computer', label: stage.screenshot ? 'Screen' : 'Desktop' })
     if (stage.answer) list.push({ kind: 'answer', id: 'answer', label: 'Final answer' })
     return list
-  }, [stage])
+  }, [stage, isArc])
 
   const [selected, setSelected] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -268,7 +345,8 @@ function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: numb
     else setSelected(c) // 'web' | 'computer' | 'answer'
   }, [activeStep, stage])
 
-  if (!stage.hasVisual) {
+  // Even with no generic visual, the ARC mode always renders the expected grid.
+  if (!stage.hasVisual && !isArc) {
     return (
       <div className="grid h-full place-items-center p-6 text-center text-xs text-zinc-600">
         No rendered artifact yet — the agent hasn't produced a spreadsheet, document, web view, screenshot, or answer up to this step.
@@ -323,13 +401,14 @@ function ArtifactViewer({ steps, activeStep }: { steps: Step[]; activeStep: numb
             <ComputerView comp={stage.computer} screenshot={stage.screenshot} run={compBounds} />
           )}
           {cur?.kind === 'answer' && stage.answer && <AnswerView answer={stage.answer} />}
+          {cur?.kind === 'arc' && arcExpected && <ArcCompareView expected={arcExpected} agent={arcAgent} />}
         </div>
       </div>
     </div>
   )
 }
 
-const ICON: Record<string, string> = { sheet: '▦', doc: '▤', web: '🌐', computer: '🖥', answer: '★' }
+const ICON: Record<string, string> = { sheet: '▦', doc: '▤', web: '🌐', computer: '🖥', answer: '★', arc: '▤' }
 // Distinct accent per artifact type so switching between them reads at a glance.
 const KIND_STYLE: Record<string, string> = {
   sheet: 'bg-emerald-500/20 text-emerald-200 ring-emerald-500/40',
@@ -337,6 +416,76 @@ const KIND_STYLE: Record<string, string> = {
   web: 'bg-sky-500/20 text-sky-200 ring-sky-500/40',
   computer: 'bg-amber-500/20 text-amber-200 ring-amber-500/40',
   answer: 'bg-rose-500/20 text-rose-200 ring-rose-500/40',
+  arc: 'bg-fuchsia-500/20 text-fuchsia-200 ring-fuchsia-500/40',
+}
+
+// ---------------------------------------------------------------------------
+// ARC AGI compare view — expected grid + agent's latest output.json side-by-side.
+// ---------------------------------------------------------------------------
+
+const ARC_PALETTE = [
+  '#000000', '#0074D9', '#FF4136', '#2ECC40', '#FFDC00',
+  '#AAAAAA', '#F012BE', '#FF851B', '#7FDBFF', '#870C25',
+]
+
+function ArcMiniGrid({ grid }: { grid: number[][] }) {
+  const rows = grid.length
+  const cols = grid[0]?.length ?? 0
+  const cell = Math.max(8, Math.min(22, Math.floor(420 / Math.max(rows, cols))))
+  return (
+    <div className="inline-block rounded border border-line bg-ink-950 p-1">
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, ${cell}px)`, gap: 1 }}>
+        {grid.flatMap((row, r) =>
+          row.map((v, c) => (
+            <div key={`${r}-${c}`}
+              title={`(${r},${c})=${v}`}
+              style={{ width: cell, height: cell, background: ARC_PALETTE[v] ?? '#444' }}
+            />
+          )),
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ArcCompareView({ expected, agent }: { expected: number[][]; agent: number[][] | null }) {
+  const sameShape = agent && expected.length === agent.length &&
+    expected[0]?.length === agent[0]?.length
+  const matches = sameShape && expected.every((r, i) => r.every((v, j) => v === agent![i][j]))
+  return (
+    <div className="space-y-4 text-sm text-zinc-300">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="rounded bg-ink-800 px-2 py-1 uppercase tracking-wide text-zinc-400">ARC AGI</span>
+        {agent
+          ? matches
+            ? <span className="rounded bg-emerald-500/20 px-2 py-1 text-emerald-200 ring-1 ring-emerald-500/40">✓ matches expected</span>
+            : sameShape
+              ? <span className="rounded bg-amber-500/20 px-2 py-1 text-amber-200 ring-1 ring-amber-500/40">✗ shapes match but values differ</span>
+              : <span className="rounded bg-rose-500/20 px-2 py-1 text-rose-200 ring-1 ring-rose-500/40">✗ output shape {agent.length}×{agent[0]?.length} ≠ expected {expected.length}×{expected[0]?.length}</span>
+          : <span className="rounded bg-ink-800 px-2 py-1 text-zinc-500">agent has not written /testbed/output.json yet</span>}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-300">Expected</div>
+          <ArcMiniGrid grid={expected} />
+          <div className="mt-1 text-[10px] text-zinc-600">{expected.length}×{expected[0]?.length}</div>
+        </div>
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Agent output</div>
+          {agent ? (
+            <>
+              <ArcMiniGrid grid={agent} />
+              <div className="mt-1 text-[10px] text-zinc-600">{agent.length}×{agent[0]?.length}</div>
+            </>
+          ) : (
+            <div className="grid h-40 place-items-center rounded-lg border border-dashed border-line p-6 text-center text-xs text-zinc-600">
+              the agent did not write a 2D-grid JSON to <code>output.json</code> by this step
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function keyFor(a: ArtifactRef): string {
@@ -605,7 +754,7 @@ export default function EnvironmentStage({ steps, activeStep, task }: { steps: S
       </Panel>
       <PanelResizeHandle className="h-1 bg-ink-700 transition-colors hover:bg-accent/50" />
       <Panel defaultSize={48} minSize={15}>
-        <ArtifactViewer steps={steps} activeStep={activeStep} />
+        <ArtifactViewer steps={steps} activeStep={activeStep} task={task} />
       </Panel>
     </PanelGroup>
   )

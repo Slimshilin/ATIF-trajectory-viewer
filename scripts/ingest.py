@@ -68,18 +68,11 @@ TB_TASK_PICKS = [
 ]
 
 # --- Source B: Harbor-Index annotate bundle ---------------------------------
-HI_TASK_PICKS = [
-    "spreadsheetbench-sort-spreadsheet-by-helper",   # spreadsheet stage
-    "widesearch-list-bri-projects-2025",             # web search + emails
-    "gaia-find-chess-winning-move",                  # reasoning + tools
-    "arcagi2-grid-transform-de80",                   # visual grid
-    "swebenchpro-fix-ansible-invalid-hosts",         # SWE-bench style
-    "crustbench-transpile-bostree-to-rust",          # language transpilation
-    "labbench-habenula-fluorescence-change",         # biology data analysis
-    "algotune-optimize-outer-product",               # algorithm optimization
-    "codepde-solve-navier-stokes-1d",                # physics PDE
-    "gso-speedup-pandas-period-fmt",                 # python performance
-]
+# Load ALL tasks shipped in the bundle. The set is small (~35) so this stays
+# under the bundle-size budget; each task brings its full Harbor directory +
+# one trial + a promoted AFT report. Showcase + tour pick a curated subset
+# from this list — see Showcase.tsx.
+HI_TASK_PICKS: list[str] | None = None  # None → load every directory found
 
 # Which audit report to promote per task. "opus__r1" generally has the
 # best-articulated AFT codes; we fall back to whatever's available.
@@ -88,6 +81,16 @@ PREFERRED_AUDITS = ["opus__r1.report.json", "opus__r2.report.json",
                     "composer__r1.report.json"]
 
 MAX_STEPS = 10_000
+# Inline cap per task-file. Most source files are well under this; oversized
+# files (auto-generated docs, vendored archives) get a `note` and the binary
+# is referenced but not bundled.
+MAX_INLINE_CHARS = 200_000
+# Skip files larger than this on disk entirely (.duckdb / .sqlite / .parquet
+# / etc. — meaningless without a player and just bloats the bundle).
+MAX_FILE_BYTES = 1_000_000
+SKIP_EXTS = {".duckdb", ".sqlite", ".sqlite3", ".db", ".parquet", ".pyc", ".so",
+             ".o", ".a", ".pyd", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz",
+             ".zip", ".jar", ".class"}
 
 
 # ---------------------------------------------------------------------------
@@ -251,27 +254,32 @@ def collect_files(root: str, base: str) -> list[dict]:
             kind = file_kind(n)
             ext = os.path.splitext(n)[1].lower()
             rec: dict = {"path": rel.replace(os.sep, "/"), "kind": kind}
+            try: size = os.path.getsize(full)
+            except Exception: size = 0
+            if ext in SKIP_EXTS:
+                continue
+            if size > MAX_FILE_BYTES and kind not in ("image",):
+                rec["kind"] = "text"
+                rec["note"] = f"{ext[1:] or 'file'} ({size} bytes) — too large to inline"
+                out.append(rec)
+                continue
             if kind == "image":
                 uri = image_data_uri(full)
                 if uri: rec["content"] = uri
                 else: rec["note"] = "image too large to inline"
             elif ext == ".xlsx":
-                # Render workbook → CSV-with-sheet-markers so SpreadsheetView
-                # shows the grid in the task page.
                 content = xlsx_to_csv(full)
                 if content:
-                    rec["content"] = content
+                    rec["content"] = content[:MAX_INLINE_CHARS]
                 else:
                     rec["note"] = "xlsx could not be parsed"
-            elif ext in (".xls", ".zip", ".tar", ".gz", ".pyc"):
-                try: size = os.path.getsize(full)
-                except: size = 0
-                rec["kind"] = "text"
-                rec["note"] = f"{ext[1:]} binary ({size} bytes) — on disk"
             else:
                 content = read_text(full)
                 if content is None: continue
-                rec["content"] = content
+                if len(content) > MAX_INLINE_CHARS:
+                    rec["content"] = content[:MAX_INLINE_CHARS] + f"\n…[truncated, {len(content) - MAX_INLINE_CHARS} more chars]"
+                else:
+                    rec["content"] = content
                 if kind == "code":
                     rec["language"] = LANG.get(ext)
             out.append(rec)
@@ -589,9 +597,24 @@ def load_hi_task(task_name: str) -> bool:
     instr = read_text(os.path.join(tdir, "instruction.md"))
     toml_text = read_text(os.path.join(tdir, "task.toml")) or ""
     meta = task_toml_meta(toml_text)
-    # Collect ONLY the public task files (skip jobs/, which holds the
-    # trajectory + audits — those become run records, not task files).
+    # Collect the public task files. We start at the task root so root-level
+    # files (task.toml, instruction.md, README.md) appear in the Human view
+    # alongside environment/, solution/, tests/ — exactly the Harbor layout.
+    # jobs/ is excluded since its contents become Run records, not task files.
     files: list[dict] = []
+    # Root-level files first (instruction.md, task.toml, README, …).
+    for fn in sorted(os.listdir(tdir)):
+        full = os.path.join(tdir, fn)
+        if os.path.isfile(full) and not fn.startswith(".") and not fn.endswith(":Zone.Identifier"):
+            kind = file_kind(fn)
+            ext = os.path.splitext(fn)[1].lower()
+            content = read_text(full)
+            if content is not None:
+                rec: dict = {"path": fn, "kind": kind, "content": content}
+                if kind == "code":
+                    rec["language"] = LANG.get(ext)
+                files.append(rec)
+    # Then walk the canonical Harbor subdirectories.
     for sub in ("environment", "solution", "tests"):
         spath = os.path.join(tdir, sub)
         if os.path.isdir(spath):
@@ -631,9 +654,13 @@ def load_hi_task(task_name: str) -> bool:
         print(f"  ! trial load failed for {task_name}: {e}")
         return True
 
-    cfg_agent = ((result.get("config") or {}).get("agent")) or {}
-    harness = cfg_agent.get("name") or (traj.get("agent") or {}).get("name") or "agent"
-    model = cfg_agent.get("model_name") or (traj.get("agent") or {}).get("model_name")
+    _cfg = result.get("config")
+    cfg_agent = (_cfg.get("agent") if isinstance(_cfg, dict) else None) or {}
+    if not isinstance(cfg_agent, dict): cfg_agent = {}
+    _ag = traj.get("agent") or {}
+    if not isinstance(_ag, dict): _ag = {}
+    harness = cfg_agent.get("name") or _ag.get("name") or "agent"
+    model = cfg_agent.get("model_name") or _ag.get("model_name")
     aid = agent(harness, model, vid)
     reward = ((result.get("verifier_result") or {}).get("rewards") or {}).get("reward")
     if reward is None:
@@ -711,8 +738,13 @@ def main() -> None:
     print(f"  TB trajectories: {tb_runs}")
 
     print()
-    print(f"=== Source B: Harbor-Index annotate bundle ({len(HI_TASK_PICKS)} tasks) ===")
-    for t in HI_TASK_PICKS:
+    # When HI_TASK_PICKS is None we ingest EVERY directory in the bundle.
+    hi_picks = HI_TASK_PICKS or sorted(
+        d for d in os.listdir(BUNDLE)
+        if os.path.isdir(os.path.join(BUNDLE, d)) and not d.startswith(".")
+    )
+    print(f"=== Source B: Harbor-Index annotate bundle ({len(hi_picks)} tasks) ===")
+    for t in hi_picks:
         load_hi_task(t)
     print(f"  HI tasks: {sum(1 for t in tasks if t['vendorId']=='harbor-index')}")
     print(f"  total runs: {len(runs)}")
@@ -740,7 +772,7 @@ def main() -> None:
             )
         elif v["id"] == "harbor-index":
             v["coverage"] = (
-                f"{len(HI_TASK_PICKS)} curated tasks from the Harbor-Index annotate "
+                f"{len(hi_picks)} tasks from the Harbor-Index annotate "
                 f"bundle (Apache-2.0) — each ships its full task directory "
                 f"(task.toml + instruction.md + environment + tests + solution), one "
                 f"trial's ATIF trajectory under jobs/<trial>/agent/trajectory.json, "

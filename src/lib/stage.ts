@@ -474,7 +474,15 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
     for (const tc of s.toolCalls ?? []) {
       const isBash = BASH_RE.test(tc.name)
       const argObj = safeParse(tc.args)
-      const rawCmd = (argObj?.command ?? argObj?.cmd ?? argObj?.input ?? '') as string
+      // Different harnesses ship the shell command under different keys:
+      //   Codex / OpenHands: `command`
+      //   Codex CLI:         `cmd`
+      //   Terminus / OpenHands-keystrokes: `keystrokes`
+      //   Some MCP wrappers: `input`
+      // Strip a trailing "\n" so the rendered terminal line doesn't get a blank.
+      const rawCmd = String(
+        argObj?.command ?? argObj?.cmd ?? argObj?.keystrokes ?? argObj?.input ?? '',
+      ).replace(/\n$/, '')
       const entry: TermEntry = {
         step: i,
         tool: tc.name,
