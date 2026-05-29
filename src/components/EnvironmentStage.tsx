@@ -542,11 +542,25 @@ function FileExplorer({
     () => Object.fromEntries(fileList.map((f) => [f.path, normOp(f.op)])),
     [fileList],
   )
+  // Show the GitHub-style legend whenever the tree carries any status other
+  // than `env` — i.e. as soon as the agent has touched a file.
+  const hasChanges = Object.values(statusByPath).some((v) => v && v !== 'env')
   return (
     <div className="flex h-full flex-col bg-ink-900/40">
       <div className="border-b border-ink-700 px-3 py-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
         Files ({fileList.length})
       </div>
+      {hasChanges && (
+        <div className="border-b border-ink-700 px-3 py-1.5 text-[10px] text-zinc-500">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <FileLegendChip cls="bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-500/40" letter="A" label="added" />
+            <FileLegendChip cls="bg-amber-500/25 text-amber-200 ring-1 ring-amber-500/40" letter="M" label="modified" />
+            <FileLegendChip cls="bg-sky-500/25 text-sky-200 ring-1 ring-sky-500/40" letter="T" label="touched" />
+            <FileLegendChip cls="bg-rose-500/25 text-rose-200 ring-1 ring-rose-500/40" letter="D" label="deleted" />
+            <span className="text-zinc-600">unbadged = env</span>
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-1">
         {fileList.length === 0 ? (
           <p className="px-3 py-2 text-xs leading-relaxed text-zinc-500">{emptyHint ?? 'No files yet.'}</p>
@@ -555,6 +569,15 @@ function FileExplorer({
         )}
       </div>
     </div>
+  )
+}
+
+function FileLegendChip({ cls, letter, label }: { cls: string; letter: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={clsx('inline-grid h-3.5 w-3.5 place-items-center rounded font-mono text-[9px] font-bold', cls)}>{letter}</span>
+      <span className="text-zinc-500">{label}</span>
+    </span>
   )
 }
 
