@@ -134,6 +134,24 @@ export function parseShellWrites(command: string): ShellWrite[] {
     const s = stmt.trim()
     if (!s) continue
 
+    // --- python heredocs:  python3 << ['"]?TAG['"]?  …  TAG ---
+    // Agents very often write files via `python3 << 'EOF' … EOF` rather than a
+    // file-edit tool — we parse the Python body for open() / .to_csv() /
+    // .save() / .write_text() / etc. so the agent view captures every file the
+    // script creates, with the literal content when the script wrote a string.
+    const pyHd = s.match(/^(?:\w+\s+)*?python3?\s*<<\s*(?:-)?\s*(['"]?)(\w+)\1\s*\n([\s\S]*?)\n\2\s*$/)
+    if (pyHd) {
+      out.push(...parsePythonWrites(pyHd[3]))
+      continue
+    }
+
+    // --- python -c "…" / python3 -c '…' ---
+    const pyC = s.match(/^(?:\w+\s+)*?python3?\s+-c\s+(['"])([\s\S]+?)\1\s*$/)
+    if (pyC) {
+      out.push(...parsePythonWrites(pyC[2]))
+      continue
+    }
+
     // --- heredocs: cat > path << [-]?['"]?TAG['"]? ... TAG ---
     const hd = s.match(/^(?:\w+\s+)*?(?:cat|tee)\s+(>>?)\s*(\S+)\s*<<\s*(-?)\s*(['"]?)(\w+)\4\s*\n([\s\S]*?)\n\5\s*$/)
     if (hd) {
@@ -218,6 +236,81 @@ export function parseShellWrites(command: string): ShellWrite[] {
   return out
 }
 
+/**
+ * Pull file-write effects out of a Python snippet (a `python3 << EOF` body or a
+ * `python3 -c "…"` arg). Regex-based and intentionally permissive: we'd rather
+ * over-report a "touched" file than miss a write the user can verify in the
+ * agent view.
+ *
+ * Patterns recognised:
+ *   open("path", "w[bt]?+?") as f:  f.write(literal)         → create + content
+ *   open("path", "w[bt]?+?").write(literal)                  → create + content
+ *   Path("path").write_text(literal) / write_bytes(literal)  → create + content
+ *   <expr>.to_csv("path")  / .to_excel / .to_json / .to_html → create (path only)
+ *   <expr>.save("path")    / .savefig("path")                → create (path only)
+ *   shutil.copy("…", "dst") / shutil.move("…", "dst")        → create on dst
+ */
+export function parsePythonWrites(body: string): ShellWrite[] {
+  if (!body) return []
+  const out: ShellWrite[] = []
+  const seen = new Set<string>()
+  const add = (w: ShellWrite) => {
+    const k = `${w.op}:${w.path}`
+    if (seen.has(k) && w.content == null) return
+    seen.add(k)
+    out.push(w)
+  }
+
+  // open(path, "w[bt]?+?") + a following .write(<literal>)
+  for (const m of body.matchAll(/open\s*\(\s*(['"])([^'"]+)\1\s*,\s*(['"])(?:w|wb|wt|a|ab|at|w\+|wb\+)\3/g)) {
+    const path = m[2]
+    const after = body.slice(m.index! + m[0].length)
+    // Try .write("…"), .write('''…'''), .write("""…""") within 600 chars
+    const window = after.slice(0, 800)
+    const wm =
+      window.match(/\.write\s*\(\s*"""([\s\S]+?)"""\s*\)/) ||
+      window.match(/\.write\s*\(\s*'''([\s\S]+?)'''\s*\)/) ||
+      window.match(/\.write\s*\(\s*"((?:\\.|[^"\\])*)"\s*\)/) ||
+      window.match(/\.write\s*\(\s*'((?:\\.|[^'\\])*)'\s*\)/) ||
+      window.match(/\.writelines\s*\(\s*\[([^\]]+)\]\s*\)/)
+    let content: string | undefined
+    if (wm) {
+      content = wm[1]
+      // Decode common escapes from quoted literals
+      content = content.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\')
+    }
+    add({ path, op: 'create', content })
+  }
+
+  // Path("…").write_text("…") / write_bytes("…")
+  for (const m of body.matchAll(/Path\s*\(\s*(['"])([^'"]+)\1\s*\)\s*\.write_(?:text|bytes)\s*\(\s*(['"])((?:\\.|[^\\])*?)\3/g)) {
+    let content = m[4].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'")
+    add({ path: m[2], op: 'create', content })
+  }
+
+  // pandas / openpyxl / matplotlib save patterns — path only
+  const savePatterns: RegExp[] = [
+    /\.to_csv\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.to_excel\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.to_json\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.to_html\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.to_parquet\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.to_pickle\s*\(\s*['"]([^'"]+)['"]/g,
+    /\b(?:wb|workbook)\.save\s*\(\s*['"]([^'"]+)['"]/g,
+    /\.savefig\s*\(\s*['"]([^'"]+)['"]/g,
+    /\bjson\.dump\s*\([^,]+,\s*open\s*\(\s*['"]([^'"]+)['"]/g,
+    /\bshutil\.(?:copy|copyfile|move)\s*\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]/g,
+  ]
+  for (const re of savePatterns) {
+    for (const m of body.matchAll(re)) {
+      add({ path: m[1], op: 'create' })
+    }
+  }
+
+  return out
+}
+
+
 function stripQuotes(s: string): string {
   if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) {
     return s.slice(1, -1)
@@ -227,20 +320,32 @@ function stripQuotes(s: string): string {
 
 /**
  * Naively split a shell command into statements while keeping heredoc bodies
- * intact. We delimit on `&&`, `||`, `;`, or a bare newline that is *not* inside
- * a recognised heredoc.
+ * AND single/double-quoted strings intact. We delimit on `&&`, `||`, `;`, or a
+ * bare newline only when we're at the top level (not inside `'…'`, `"…"`, or a
+ * recognised heredoc body). This lets `python3 -c "import pandas; df.to_csv(…)"`
+ * survive as one statement instead of being chopped at the `;` inside the
+ * quoted argument.
  */
 function splitShellStatements(cmd: string): string[] {
   const out: string[] = []
   let i = 0
   const n = cmd.length
   let buf = ''
+  let quote: '"' | "'" | null = null
   while (i < n) {
-    // detect heredoc opener: `<< [-]? ['"]? TAG ['"]?`
+    const ch = cmd[i]
+    // Inside a quoted string: keep going until the matching closer.
+    if (quote) {
+      buf += ch
+      if (ch === '\\' && i + 1 < n) { buf += cmd[i + 1]; i += 2; continue }
+      if (ch === quote) quote = null
+      i++
+      continue
+    }
+    // Top-level: detect heredoc opener: `<< [-]? ['"]? TAG ['"]?`
     const hdMatch = cmd.slice(i).match(/^<<\s*(-?)\s*(['"]?)(\w+)\2/)
     if (hdMatch) {
       const tag = hdMatch[3]
-      // consume up to and including the closing tag on its own line
       const re = new RegExp(`\\n${tag}(\\s|$)`)
       buf += cmd.slice(i, i + hdMatch[0].length)
       i += hdMatch[0].length
@@ -256,7 +361,12 @@ function splitShellStatements(cmd: string): string[] {
       }
       continue
     }
-    const ch = cmd[i]
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      buf += ch
+      i++
+      continue
+    }
     if (ch === '\n' || ch === ';') {
       if (buf.trim()) out.push(buf)
       buf = ''

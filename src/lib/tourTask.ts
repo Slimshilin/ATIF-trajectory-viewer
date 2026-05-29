@@ -28,62 +28,11 @@ export const TOUR_STEPS = {
   lost: 8,
 } as const
 
-// Inline SVG mockups, base64-encoded → data URIs. Both depict a fake
-// "Spreadsheet" window so the computer-use stage renders something plausible
-// without loading any external image.
-const SVG_EXCEL_OPEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
-  <rect width="720" height="460" fill="#f4f4f5"/>
-  <rect width="720" height="40" fill="#107c41"/>
-  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet (toy) - widget_sales.xlsx</text>
-  <rect x="0" y="40" width="720" height="30" fill="#e7e5e4"/>
-  <text x="14" y="60" font-size="12" fill="#3f3f46">File . Edit . View . Formulas . Data . Review</text>
-  <g font-size="12" fill="#27272a">
-    <rect x="10" y="80" width="700" height="24" fill="#d4d4d8"/>
-    <text x="20" y="96" font-weight="600">A</text><text x="105" y="96" font-weight="600">B</text>
-    <text x="190" y="96" font-weight="600">C</text><text x="275" y="96" font-weight="600">D</text>
-    <text x="360" y="96" font-weight="600">E (Total $)</text>
-    <line x1="10" y1="104" x2="710" y2="104" stroke="#a1a1aa"/>
-    <text x="20" y="128">Widget</text><text x="105" y="128">Oct</text><text x="190" y="128">Nov</text>
-    <text x="275" y="128">Dec</text><text x="360" y="128">=(B:D sum) * price</text>
-    <text x="20" y="152">Widget-A</text><text x="105" y="152">12</text><text x="190" y="152">14</text>
-    <text x="275" y="152">18</text><text x="360" y="152" fill="#15803d">439.56</text>
-    <text x="20" y="176">Widget-B</text><text x="105" y="176">8</text><text x="190" y="176">11</text>
-    <text x="275" y="176">13</text><text x="360" y="176" fill="#15803d">464.00</text>
-    <text x="20" y="200">Widget-C</text><text x="105" y="200">21</text><text x="190" y="200">19</text>
-    <text x="275" y="200">24</text><text x="360" y="200" fill="#15803d">272.00</text>
-    <text x="20" y="224">Widget-D</text><text x="105" y="224">6</text><text x="190" y="224">7</text>
-    <text x="275" y="224">9</text><text x="360" y="224" fill="#15803d">659.78</text>
-    <line x1="10" y1="240" x2="710" y2="240" stroke="#a1a1aa" stroke-dasharray="3"/>
-    <text x="20" y="262" font-weight="700">TOTAL</text>
-    <text x="360" y="262" font-weight="700" fill="#15803d">1,835.34</text>
-  </g>
-  <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
-  <text x="14" y="450" font-size="11" fill="white">Q4 . AcmeDemo (fictitious)        Ready</text>
-</svg>`
-
-const SVG_EXCEL_CONFIRM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460" font-family="ui-sans-serif,system-ui">
-  <rect width="720" height="460" fill="#f4f4f5"/>
-  <rect width="720" height="40" fill="#107c41"/>
-  <text x="14" y="26" font-size="14" fill="white" font-weight="600">Spreadsheet (toy) - widget_sales.xlsx - verified</text>
-  <rect x="100" y="120" width="520" height="220" rx="10" fill="white" stroke="#a1a1aa" stroke-width="1.5"/>
-  <circle cx="360" cy="190" r="36" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
-  <path d="M345 192 l12 12 l24 -28" stroke="#15803d" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="360" y="262" font-size="18" fill="#27272a" text-anchor="middle" font-weight="600">Totals verified</text>
-  <text x="360" y="290" font-size="13" fill="#52525b" text-anchor="middle">Toy Q4 total reconciled to $1,835.34</text>
-  <rect x="280" y="306" width="160" height="32" rx="6" fill="#15803d"/>
-  <text x="360" y="327" font-size="13" fill="white" text-anchor="middle" font-weight="600">OK</text>
-  <rect x="0" y="430" width="720" height="30" fill="#107c41"/>
-  <text x="14" y="450" font-size="11" fill="white">Q4 . AcmeDemo (fictitious)        Verified</text>
-</svg>`
-
-// Encode a Unicode string as base64 — `btoa` only accepts Latin1, but our SVG
-// mockups include em-dashes and other non-Latin1 glyphs. We URL-encode first,
-// then unescape to a Latin1-safe byte stream, then base64.
-function utf8b64(s: string): string {
-  return btoa(unescape(encodeURIComponent(s)))
-}
-const SHOT_A = `data:image/svg+xml;base64,${utf8b64(SVG_EXCEL_OPEN)}`
-const SHOT_B = `data:image/svg+xml;base64,${utf8b64(SVG_EXCEL_CONFIRM)}`
+// Computer-use screenshots. The two PNGs in `public/tour/` are heavily blurred
+// + watermarked DEMO versions of a real desktop screenshot — they look like
+// "an agent operating a GUI" without exposing any recognisable content.
+const SHOT_A = `${import.meta.env.BASE_URL}tour/blurred-computer-use.png`
+const SHOT_B = `${import.meta.env.BASE_URL}tour/blurred-computer-use-verified.png`
 
 const vendor: Vendor = { id: TOUR_VENDOR_ID, name: 'Guided Tour (synthetic)' }
 
@@ -221,7 +170,7 @@ const steps: Step[] = [
   { index: 0, role: 'user', text: INSTRUCTION, tSec: 0 },
   { index: 1, role: 'assistant', reasoning: 'Plan: (1) inspect the AcmeDemo workspace and widget sales data, (2) build a sales sheet with a live total formula, (3) pull the current quarter total from the demo dashboard, (4) verify on the desktop app, (5) write the recap paragraph.', text: 'Starting with the workspace layout and the widget sales data.', tSec: 6 },
   { index: 2, role: 'assistant', toolCalls: tc('bash', { command: 'ls -la /app && ls /app/data' }), observation: 'Dockerfile  analysis/  data/  README.md\nwidget_sales.csv  RUBRIC.md', tSec: 14 },
-  { index: 3, role: 'assistant', toolCalls: tc('bash', { command: 'cat /app/data/widget_sales.csv' }), observation: 'widget,oct,nov,dec,unit_price\nWidget-A,12,14,18,9.99\n...4 widgets total', tSec: 25 },
+  { index: 3, role: 'assistant', toolCalls: tc('bash', { command: 'cat /app/data/widget_sales.csv' }), observation: 'widget,oct,nov,dec,unit_price\nWidget-X1,xx,xx,xx,xx.xx\n…4 fake widgets total', tSec: 25 },
   {
     index: 4, role: 'assistant', text: 'Implementing the toy sheet-builder script.',
     toolCalls: tc('create_file', { path: 'analysis/build_sheet.py', file_text: 'import pandas as pd\n\ndef build_sales_sheet(df):\n    df["units"] = df[["oct","nov","dec"]].sum(axis=1)\n    df["total"] = df["units"] * df["unit_price"]\n    return df\n' }),
@@ -231,7 +180,7 @@ const steps: Step[] = [
   },
   {
     index: 5, role: 'assistant', text: 'Building the sales grid from the widget data.',
-    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A1', cells: [['Widget', 'Oct', 'Nov', 'Dec', 'Total ($)'], ['Widget-A', '12', '14', '18', '439.56'], ['Widget-B', '8', '11', '13', '464.00'], ['Widget-C', '21', '19', '24', '272.00'], ['Widget-D', '6', '7', '9', '659.78']] }],
+    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A1', cells: [['Widget', 'Oct', 'Nov', 'Dec', 'Total ($)'], ['Widget-X1', 'xx', 'xx', 'xx', 'xxx.xx'], ['Widget-X2', 'xx', 'xx', 'xx', 'xxx.xx'], ['Widget-X3', 'xx', 'xx', 'xx', 'xxx.xx'], ['Widget-X4', 'xx', 'xx', 'xx', 'xxx.xx']] }],
     tSec: 120,
   },
   {
@@ -241,14 +190,14 @@ const steps: Step[] = [
   },
   {
     index: 7, role: 'assistant', text: 'Totals row and formatting.',
-    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A6', cells: [['TOTAL', '', '', '', '1835.34']] }],
+    edits: [{ t: 'sheet', target: 'widget_sales.xlsx', sheet: 'Q4', anchor: 'A6', cells: [['TOTAL', '', '', '', 'x,xxx.xx']] }],
     mutations: [{ kind: 'spreadsheet', tool: 'excel_write', target: 'widget_sales.xlsx', summary: 'wrote totals row' }],
     tSec: 200,
   },
   {
     index: 8, role: 'assistant', text: 'Fetching the live demo dashboard figure.',
     toolCalls: tc('web_fetch', { url: 'http://demo-dashboard.local/q4' }),
-    edits: [{ t: 'web', url: 'http://demo-dashboard.local/q4', content: '# AcmeDemo · Q4 Widget Dashboard (toy demo)\n\n**Live Q4 total: $1,902.10**  _(updated 2 hours ago — fictitious)_\n\n| Metric | Value |\n| --- | --- |\n| Units sold | 162 |\n| Avg price | $11.74 |\n| Top widget | Widget-D |\n\n> Note: the CSV snapshot ($1,835.34) is stale — use the live figure above.' }],
+    edits: [{ t: 'web', url: 'http://demo-dashboard.local/q4', content: '# AcmeDemo · Q4 Widget Dashboard (toy demo)\n\n**Live Q4 total: $x,xxx.xx**  _(updated x hours ago — fictitious)_\n\n| Metric | Value |\n| --- | --- |\n| Units sold | xxx |\n| Avg price | $xx.xx |\n| Top widget | Widget-Xn |\n\n> Note: the CSV snapshot ($x,xxx.xx) is stale — use the live figure above.' }],
     tSec: 250,
   },
   {
@@ -269,13 +218,13 @@ const steps: Step[] = [
   },
   {
     index: 12, role: 'assistant', text: 'Recap body.',
-    edits: [{ t: 'doc', target: 'recap.md', op: 'para', text: 'Q4 widget sales total $1,835.34 across the four toy widgets. See the attached sheet for the breakdown.' }],
+    edits: [{ t: 'doc', target: 'recap.md', op: 'para', text: 'Q4 widget sales total $x,xxx.xx across the four toy widgets. See the attached sheet for the breakdown.' }],
     mutations: [{ kind: 'document', tool: 'write_file', target: 'recap.md', summary: 'wrote recap body' }],
     tSec: 395,
   },
   {
     index: 13, role: 'assistant', text: 'Final answer.',
-    edits: [{ t: 'answer', content: '**Done.** Built `T12_model.xlsx` with live formulas, verified in the desktop app, and wrote `memo.md`. Trailing-12 income: **$111,540**.' }],
+    edits: [{ t: 'answer', content: '**Done.** Built `widget_sales.xlsx` with live formulas, verified in the desktop app, and wrote `recap.md`. Q4 total: **$x,xxx.xx**.' }],
     tSec: 410,
   },
   { index: 14, role: 'assistant', text: 'Toy sheet built and recap saved.', tSec: 418 },
@@ -296,7 +245,7 @@ const heroRun: Run = {
   durationSec: 418,
   artifacts: ['widget_sales.xlsx', 'recap.md', 'analysis/build_sheet.py'],
   tokens: { prompt: 48200, completion: 9100, costUsd: 0.41 },
-  failureReason: 'Used the stale CSV total ($1,835.34) instead of the live demo-dashboard figure ($1,902.10); recap omitted the per-widget breakdown.',
+  failureReason: 'Used the stale CSV total ($x,xxx.xx) instead of the live demo-dashboard figure ($x,xxx.xx); recap omitted the per-widget breakdown.',
   grade: {
     score: 0.62,
     maxScore: 1,
@@ -307,21 +256,22 @@ const heroRun: Run = {
       { label: 'Recap completeness', score: 0.5 },
       { label: 'Formatting', score: 0.8 },
     ],
-    summary: `### Toy verifier log (demo only)
+    summary: `### Toy verifier log (demo only — values dummified)
 
 \`\`\`
 [1/4] workspace builds .......... PASS
-[2/4] cell accuracy ............. PASS  (37/40 cells exact; 0.92)
-[3/4] dashboard freshness ....... FAIL  used 1835.34 (CSV) — live value is 1902.10
+[2/4] cell accuracy ............. PASS  (xx/xx cells exact; 0.92)
+[3/4] dashboard freshness ....... FAIL  used $x,xxx.xx (CSV) — live value is $x,xxx.xx
 [4/4] recap completeness ........ PARTIAL  per-widget breakdown missing (0.5)
 \`\`\`
 
-**Weighted score: 0.62 / 1.00.** The toy agent built the widget-sales sheet
-correctly and formatted it, but reported the **stale CSV total** instead of the
-live demo-dashboard number it had successfully fetched, and the recap omitted
-the per-widget breakdown.`,
+**Weighted score: 0.62 / 1.00 (toy weights).** The toy agent built the
+widget-sales sheet and formatted it, but reported the **stale CSV total**
+instead of the live demo-dashboard number it had successfully fetched, and the
+recap omitted the per-widget breakdown. All numbers above are placeholders —
+this run is fabricated for the tour.`,
     findings: [
-      { category: 'Data freshness', severity: 'critical', summary: 'Reported stale total', detail: 'Live demo dashboard returned $1,902.10 but the recap and final answer used the CSV snapshot $1,835.34.' },
+      { category: 'Data freshness', severity: 'critical', summary: 'Reported stale total', detail: 'Live demo dashboard returned $x,xxx.xx but the recap and final answer used the CSV snapshot $x,xxx.xx.' },
       { category: 'Deliverable completeness', severity: 'major', summary: 'Recap missing per-widget breakdown', detail: 'The toy rubric requires a per-widget total table; the recap had only a one-line summary.' },
     ],
   },

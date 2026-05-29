@@ -212,8 +212,12 @@ export function startTour(steps: TStep[], navigate: (p: string) => void) {
         showButtons: ['previous', 'next', 'close'],
         nextBtnText: i === total - 1 ? 'Done ✓' : 'Next →',
         prevBtnText: '← Back',
-        onNextClick: () => { if (i < total - 1) { i++; render() } else d.destroy() },
-        onPrevClick: () => { if (i > 0) { i--; render() } },
+        // driver.js v1.3 invokes these synchronously inside its own click
+        // handler; calling d.highlight() from there is racy and the Back
+        // button effectively no-ops. setTimeout defers the re-highlight until
+        // after driver finishes its own bookkeeping for the current click.
+        onNextClick: () => { if (i < total - 1) { i++; setTimeout(render, 0) } else d.destroy() },
+        onPrevClick: () => { if (i > 0) { i--; setTimeout(render, 0) } },
         // driver.js needs an explicit close handler whenever other on*Click
         // handlers are set — without this, the ✕ corner button is dead.
         onCloseClick: () => d.destroy(),
