@@ -184,14 +184,17 @@ export default function Markdown({ content, className = '' }: { content: string;
       continue
     }
 
-    // paragraph (gather consecutive non-empty, non-special lines)
+    // paragraph (gather consecutive non-empty, non-special lines). Stop at an
+    // ARC grid line even with no blank line before it — e.g. "--Test Input--\n
+    // [[…]]" — so the grid renders as cells, not swallowed as paragraph text.
     const buf: string[] = [line]
     i++
     while (
       i < lines.length &&
       lines[i].trim() &&
       !/^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(lines[i]) &&
-      !(lines[i].includes('|') && i + 1 < lines.length && /^\s*\|?[\s:-]+\|/.test(lines[i + 1]))
+      !(lines[i].includes('|') && i + 1 < lines.length && /^\s*\|?[\s:-]+\|/.test(lines[i + 1])) &&
+      !(/^\s*\[/.test(lines[i]) && readArcGridBlock(lines, i))
     ) {
       buf.push(lines[i++])
     }
