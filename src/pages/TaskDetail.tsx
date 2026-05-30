@@ -201,13 +201,14 @@ export default function TaskDetail() {
                     <th className="px-4 py-3 font-medium">Steps</th>
                     <th className="px-4 py-3 font-medium">Turns</th>
                     <th className="px-4 py-3 font-medium">Duration</th>
+                    <th className="px-4 py-3 font-medium">Error</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
                   {visibleRuns.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-6 text-center text-sm text-zinc-600">
+                      <td colSpan={9} className="px-4 py-6 text-center text-sm text-zinc-600">
                         No runs match the selected harness / model filters.
                       </td>
                     </tr>
@@ -225,6 +226,15 @@ export default function TaskDetail() {
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{run.stepCount}</td>
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{run.turns}</td>
                         <td className="px-4 py-3 tabular-nums text-zinc-300">{fmtDuration(run.durationSec)}</td>
+                        <td className="px-4 py-3">
+                          {run.failureReason ? (
+                            <span className="chip bg-rose-500/15 text-rose-300" title={run.failureReason}>
+                              {run.failureReason.split(':')[0].slice(0, 30)}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <Link to={`/tasks/${task.id}/runs/${run.id}`} className="btn-ghost">
                             View trajectory →
