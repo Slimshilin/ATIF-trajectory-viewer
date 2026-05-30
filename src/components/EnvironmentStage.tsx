@@ -260,37 +260,85 @@ function isArcShape(v: unknown): v is number[][] {
   return true
 }
 
-/** Walk the trajectory up to `upto` and find the agent's latest write to a
- *  file matching `output.json` — covers write_file / Write tool calls, shell
- *  `cat > … << EOF` heredocs, and `python3 -c` style one-liners. */
-function findArcAgentOutput(steps: Step[], upto: number): number[][] | null {
+/** Scan arbitrary text (a tool observation, a command) for the LAST ARC-shaped
+ *  2D number array it contains. Uses a balanced-bracket walk so it handles the
+ *  grid being embedded in prose like `Output:\n30 30\n[[0,0,…]]`. */
+function extractArcGridFromText(text: string): number[][] | null {
+  let found: number[][] | null = null
+  for (let i = 0; i + 1 < text.length; i++) {
+    if (text[i] !== '[') continue
+    // The next non-whitespace char must also be '[' — i.e. an array-of-arrays
+    // opener — so we match both `[[…` and pretty-printed `[\n  […`.
+    let k = i + 1
+    while (k < text.length && /\s/.test(text[k])) k++
+    if (text[k] !== '[') continue
+    let depth = 0
+    let j = i
+    for (; j < text.length; j++) {
+      if (text[j] === '[') depth++
+      else if (text[j] === ']') { depth--; if (depth === 0) break }
+    }
+    if (depth !== 0) break // unbalanced (likely truncated) — stop
+    try {
+      const v = JSON.parse(text.slice(i, j + 1))
+      if (isArcShape(v)) found = v as number[][] // keep last match
+    } catch { /* not JSON — skip */ }
+    i = j // continue past this array
+  }
+  return found
+}
+
+/** The agent's `output.json` grid as captured at a specific step. */
+interface ArcAgentOutput { grid: number[][]; stepIndex: number }
+
+/** Walk the trajectory up to `upto` and find the agent's latest `output.json`
+ *  grid, returning the producing step index too. Covers three write styles,
+ *  newest step first:
+ *   1. write_file / Write tool calls whose content is the grid JSON,
+ *   2. shell `cat > … << EOF` / `echo … > output.json` literals, and
+ *   3. computed writes the agent then prints — e.g. `… && python3 -c
+ *      'print(json.dumps(g))'` — by reading the grid out of the step's
+ *      OBSERVATION whenever that step touches output.json. */
+function findArcAgentOutput(steps: Step[], upto: number): ArcAgentOutput | null {
   for (let i = Math.min(upto, steps.length - 1); i >= 0; i--) {
     const s = steps[i]
+    let touchesOutput = false
     for (const tc of s.toolCalls ?? []) {
       let args: Record<string, unknown> = {}
       try { args = JSON.parse(tc.args ?? '{}') } catch { /* fall through */ }
       const path = (args.file_path ?? args.path ?? args.filepath) as string | undefined
       const content = (args.content ?? args.new_content ?? args.file_text) as string | undefined
-      if (typeof path === 'string' && /output\.json$/i.test(path) && typeof content === 'string') {
-        try {
-          const v = JSON.parse(content)
-          if (isArcShape(v)) return v as number[][]
-        } catch { /* keep scanning */ }
+      if (typeof path === 'string' && /output\.json$/i.test(path)) {
+        touchesOutput = true
+        if (typeof content === 'string') {
+          try {
+            const v = JSON.parse(content)
+            if (isArcShape(v)) return { grid: v as number[][], stepIndex: i }
+          } catch { /* keep scanning */ }
+        }
       }
       // Shell write captured in a bash command string (keystrokes covers
       // Terminus-style trajectories that ship a `{keystrokes, duration}` arg).
       const cmd = (args.command ?? args.cmd ?? args.keystrokes ?? args.input) as string | undefined
       if (typeof cmd === 'string' && /output\.json/.test(cmd)) {
+        touchesOutput = true
         const hd = cmd.match(/cat\s*<<\s*['"]?(\w+)['"]?\s*>?\s*\S*output\.json[\s\S]*?\n([\s\S]+?)\n\1\s*$/m)
           || cmd.match(/cat\s*>?\s*\S*output\.json\s*<<\s*['"]?(\w+)['"]?\s*\n([\s\S]+?)\n\1\s*$/m)
           || cmd.match(/echo\s+(?:-\w+\s+)?['"]([\s\S]+?)['"]\s*>+\s*\S*output\.json/)
         if (hd) {
           try {
             const v = JSON.parse(hd[2] ?? hd[1])
-            if (isArcShape(v)) return v as number[][]
+            if (isArcShape(v)) return { grid: v as number[][], stepIndex: i }
           } catch { /* not parseable */ }
         }
       }
+    }
+    // Computed-then-printed writes: if this step deals with output.json, the
+    // grid is usually echoed back in its observation. Read it from there.
+    const obs = s.observation
+    if (typeof obs === 'string' && (touchesOutput || /output\.json/.test(obs))) {
+      const g = extractArcGridFromText(obs)
+      if (g) return { grid: g, stepIndex: i }
     }
   }
   return null
@@ -428,42 +476,63 @@ const ARC_PALETTE = [
   '#AAAAAA', '#F012BE', '#FF851B', '#7FDBFF', '#870C25',
 ]
 
-function ArcMiniGrid({ grid }: { grid: number[][] }) {
+/** Render a grid as colored cells. When `compareTo` (same shape) is supplied,
+ *  cells whose value differs are outlined so mismatches are visible at a glance. */
+function ArcMiniGrid({ grid, compareTo }: { grid: number[][]; compareTo?: number[][] | null }) {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   const cell = Math.max(8, Math.min(22, Math.floor(420 / Math.max(rows, cols))))
+  const canDiff = !!compareTo && compareTo.length === rows && (compareTo[0]?.length ?? -1) === cols
   return (
     <div className="inline-block rounded border border-line bg-ink-950 p-1">
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, ${cell}px)`, gap: 1 }}>
         {grid.flatMap((row, r) =>
-          row.map((v, c) => (
-            <div key={`${r}-${c}`}
-              title={`(${r},${c})=${v}`}
-              style={{ width: cell, height: cell, background: ARC_PALETTE[v] ?? '#444' }}
-            />
-          )),
+          row.map((v, c) => {
+            const diff = canDiff && compareTo![r][c] !== v
+            return (
+              <div key={`${r}-${c}`}
+                title={diff ? `(${r},${c})=${v} · expected ${compareTo![r][c]}` : `(${r},${c})=${v}`}
+                style={{
+                  width: cell, height: cell, background: ARC_PALETTE[v] ?? '#444',
+                  boxShadow: diff ? 'inset 0 0 0 2px #fff, 0 0 0 1px #ff4136' : undefined,
+                }}
+              />
+            )
+          }),
         )}
       </div>
     </div>
   )
 }
 
-function ArcCompareView({ expected, agent }: { expected: number[][]; agent: number[][] | null }) {
-  const sameShape = agent && expected.length === agent.length &&
-    expected[0]?.length === agent[0]?.length
-  const matches = sameShape && expected.every((r, i) => r.every((v, j) => v === agent![i][j]))
+function ArcCompareView({ expected, agent }: { expected: number[][]; agent: ArcAgentOutput | null }) {
+  const grid = agent?.grid ?? null
+  const sameShape = grid && expected.length === grid.length &&
+    expected[0]?.length === grid[0]?.length
+  const matches = sameShape && expected.every((r, i) => r.every((v, j) => v === grid![i][j]))
+  const diffCount = sameShape && !matches
+    ? expected.reduce((n, r, i) => n + r.reduce((m, v, j) => m + (v === grid![i][j] ? 0 : 1), 0), 0)
+    : 0
   return (
-    <div className="space-y-4 text-sm text-zinc-300">
+    <div className="space-y-3 text-sm text-zinc-300">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded bg-ink-800 px-2 py-1 uppercase tracking-wide text-zinc-400">ARC AGI</span>
-        {agent
+        {grid
           ? matches
             ? <span className="rounded bg-emerald-500/20 px-2 py-1 text-emerald-200 ring-1 ring-emerald-500/40">✓ matches expected</span>
             : sameShape
-              ? <span className="rounded bg-amber-500/20 px-2 py-1 text-amber-200 ring-1 ring-amber-500/40">✗ shapes match but values differ</span>
-              : <span className="rounded bg-rose-500/20 px-2 py-1 text-rose-200 ring-1 ring-rose-500/40">✗ output shape {agent.length}×{agent[0]?.length} ≠ expected {expected.length}×{expected[0]?.length}</span>
+              ? <span className="rounded bg-amber-500/20 px-2 py-1 text-amber-200 ring-1 ring-amber-500/40">✗ {diffCount} cell{diffCount !== 1 ? 's' : ''} differ</span>
+              : <span className="rounded bg-rose-500/20 px-2 py-1 text-rose-200 ring-1 ring-rose-500/40">✗ output shape {grid.length}×{grid[0]?.length} ≠ expected {expected.length}×{expected[0]?.length}</span>
           : <span className="rounded bg-ink-800 px-2 py-1 text-zinc-500">agent has not written /testbed/output.json yet</span>}
+        {agent && <span className="text-[10px] text-zinc-500">captured at step {agent.stepIndex + 1}</span>}
       </div>
+      {/* The grids are a viewer-side colorization to aid human review — the
+          agent itself only ever read/wrote the raw integer matrix. */}
+      <p className="rounded border border-ink-700 bg-ink-900/60 px-2 py-1.5 text-[10px] leading-relaxed text-zinc-500">
+        🎨 Viewer colorization. The agent did <span className="text-zinc-400">not</span> see these
+        colors — it worked only with the raw integer matrix (ARC palette 0–9). Mismatched cells are
+        outlined in <span className="text-rose-300">white/red</span>.
+      </p>
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-300">Expected</div>
@@ -472,10 +541,10 @@ function ArcCompareView({ expected, agent }: { expected: number[][]; agent: numb
         </div>
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Agent output</div>
-          {agent ? (
+          {grid ? (
             <>
-              <ArcMiniGrid grid={agent} />
-              <div className="mt-1 text-[10px] text-zinc-600">{agent.length}×{agent[0]?.length}</div>
+              <ArcMiniGrid grid={grid} compareTo={expected} />
+              <div className="mt-1 text-[10px] text-zinc-600">{grid.length}×{grid[0]?.length} · from step {agent!.stepIndex + 1}</div>
             </>
           ) : (
             <div className="grid h-40 place-items-center rounded-lg border border-dashed border-line p-6 text-center text-xs text-zinc-600">
