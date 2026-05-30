@@ -97,9 +97,13 @@ export default function GradePanel({
             <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded border border-ink-800 bg-ink-900 p-2.5 font-mono text-[11.5px] leading-relaxed text-zinc-300">
               {verifierLog}
             </pre>
-          ) : !failureReason ? (
-            <p className="text-xs text-zinc-600">No verifier log (test-stdout.txt) was shipped for this run.</p>
-          ) : null}
+          ) : (
+            <p className="text-xs text-zinc-600">
+              {failureReason
+                ? 'No verifier stdout — the run ended with the error above before the verifier captured any test output.'
+                : 'No verifier log (test-stdout.txt) was shipped for this run.'}
+            </p>
+          )}
         </div>
       </details>
 

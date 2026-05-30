@@ -514,6 +514,18 @@ def emit_run(run: dict) -> None:
     runs.append(run)
 
 
+def clean_exc(exc) -> str | None:
+    """A readable one-liner from a result.json exception_info — the dict's repr
+    (with full traceback) is unreadable in the UI. Falls back to str()."""
+    if not exc:
+        return None
+    if isinstance(exc, dict):
+        t = exc.get("exception_type") or "error"
+        m = (exc.get("exception_message") or "").strip()
+        return scrub_secrets(f"{t}: {m}".strip(": ").strip())[:400]
+    return scrub_secrets(str(exc))[:400]
+
+
 def iso_duration(a, b):
     if not a or not b: return None
     try:
@@ -818,7 +830,7 @@ def _tb_load_one_trial(agent_dir: str, date_dir: str, trial_rel: str,
             "summary": f"{harness} · {model} · trial {trial_rel}",
             "gate": None, "breakdown": None, "findings": None,
         },
-        "failureReason": (str(exc)[:400] if exc else None),
+        "failureReason": clean_exc(exc),
     })
     return True
 
@@ -969,7 +981,7 @@ def load_hi_task(task_name: str) -> bool:
                 "summary": f"{harness} · {model} · {job_name}",
                 "gate": None, "breakdown": None, "findings": None,
             },
-            "failureReason": (str(exc)[:400] if exc else None),
+            "failureReason": clean_exc(exc),
         })
         loaded += 1
 
