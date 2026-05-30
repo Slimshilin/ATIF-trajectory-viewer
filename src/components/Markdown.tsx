@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { highlight } from '../lib/highlight'
+import { ArcGridView, readArcGridBlock } from './ArcGrid'
 
 // ---------------------------------------------------------------------------
 // Dependency-free Markdown renderer tuned for agent output (reports, tables,
@@ -9,8 +10,9 @@ import { highlight } from '../lib/highlight'
 
 function inline(text: string, keyBase: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  // order matters: code first (so we don't format inside it), then links, then emphasis
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)|(~~[^~]+~~)|(\[[^\]]+\]\([^)]+\))/g
+  // order matters: code first (so we don't format inside it), then images,
+  // then links, then emphasis
+  const pattern = /(`[^`]+`)|(!\[[^\]]*\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)|(~~[^~]+~~)|(\[[^\]]+\]\([^)]+\))/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
@@ -24,6 +26,15 @@ function inline(text: string, keyBase: string): ReactNode[] {
           {tok.slice(1, -1)}
         </code>,
       )
+    } else if (tok.startsWith('![')) {
+      const im = /!\[([^\]]*)\]\(([^)]+)\)/.exec(tok)!
+      const alt = im[1]
+      const src = im[2].trim()
+      // Only embed self-contained sources (data URIs / absolute URLs); a
+      // relative path wouldn't resolve in the viewer, so show it as a label.
+      nodes.push(/^(https?:|data:)/i.test(src)
+        ? <img key={k} src={src} alt={alt} className="my-2 max-w-full rounded border border-line" />
+        : <span key={k} className="text-zinc-500">🖼 {alt || src}</span>)
     } else if (tok.startsWith('**') || tok.startsWith('__')) {
       nodes.push(<strong key={k} className="font-semibold text-white">{tok.slice(2, -2)}</strong>)
     } else if (tok.startsWith('~~')) {
@@ -99,6 +110,18 @@ export default function Markdown({ content, className = '' }: { content: string;
         </pre>,
       )
       continue
+    }
+
+    // ARC-AGI grid: an inline JSON 2D number array (palette 0–9), possibly
+    // spanning several lines — render as colored cells instead of a wall of
+    // numbers. Common in ARC instructions ("INPUT:\n[[…]]") and step text.
+    if (/^\s*\[/.test(line)) {
+      const arc = readArcGridBlock(lines, i)
+      if (arc) {
+        blocks.push(<ArcGridView key={key++} grids={arc.grids} />)
+        i += arc.consumed
+        continue
+      }
     }
 
     // table: header row followed by a separator row of ---|---

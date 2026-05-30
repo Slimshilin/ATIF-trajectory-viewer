@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import clsx from 'clsx'
 import { useParams } from 'react-router-dom'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/Layout'
@@ -12,6 +14,9 @@ export default function TaskDetail() {
   const { taskId } = useParams()
   const { data, error } = useDatasetStore()
   const lk = useLookups(data)
+  // Run-table filters (empty set = no filter / show all).
+  const [selHarness, setSelHarness] = useState<Set<string>>(new Set())
+  const [selModel, setSelModel] = useState<Set<string>>(new Set())
 
   if (error) return <div className="p-8 text-rose-400">Failed to load dataset: {error}</div>
   if (!data || !lk) return <Loading />
@@ -22,6 +27,41 @@ export default function TaskDetail() {
   const runs = lk.runsForTask(task.id)
   const agg = aggregate(runs)
   const meta = task.metadata ?? {}
+
+  // --- run-table ordering + filtering ---------------------------------------
+  const HARNESS_NA = 'not reported'
+  const harnessKey = (run: (typeof runs)[number]) => lk.agent(run.agentId)?.harness || HARNESS_NA
+  const modelKey = (run: (typeof runs)[number]) => {
+    const m = lk.agent(run.agentId)?.model
+    return m ? prettyModel(m) : 'unknown model'
+  }
+  const byHarnessNaLast = (a: string, b: string) =>
+    a === HARNESS_NA ? 1 : b === HARNESS_NA ? -1 : a.localeCompare(b)
+  const harnessOpts = [...new Set(runs.map(harnessKey))].sort(byHarnessNaLast)
+  const modelOpts = [...new Set(runs.map(modelKey))].sort((a, b) => a.localeCompare(b))
+  const hasFilters = harnessOpts.length > 1 || modelOpts.length > 1
+
+  const visibleRuns = runs
+    .filter(
+      (r) =>
+        (selHarness.size === 0 || selHarness.has(harnessKey(r))) &&
+        (selModel.size === 0 || selModel.has(modelKey(r))),
+    )
+    // Order by agent harness, then model, alphabetically ("not reported" last).
+    .sort((a, b) => {
+      const h = byHarnessNaLast(harnessKey(a), harnessKey(b))
+      return h !== 0 ? h : modelKey(a).localeCompare(modelKey(b))
+    })
+
+  const toggle = (
+    set: Set<string>,
+    setter: (s: Set<string>) => void,
+    val: string,
+  ) => {
+    const next = new Set(set)
+    next.has(val) ? next.delete(val) : next.add(val)
+    setter(next)
+  }
 
   return (
     <>
@@ -115,7 +155,7 @@ export default function TaskDetail() {
         <section data-tour="task-runs">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-              Agent runs ({runs.length})
+              Agent runs ({visibleRuns.length === runs.length ? runs.length : `${visibleRuns.length} of ${runs.length}`})
             </h2>
             {runs.length > 0 && (
               <div className="text-xs text-zinc-500">
@@ -124,6 +164,27 @@ export default function TaskDetail() {
               </div>
             )}
           </div>
+
+          {/* Filter by agent harness / model when there's more than one of either */}
+          {hasFilters && (
+            <div className="mb-3 space-y-2">
+              <FilterRow
+                label="Harness"
+                opts={harnessOpts}
+                sel={selHarness}
+                onToggle={(v) => toggle(selHarness, setSelHarness, v)}
+                onClear={() => setSelHarness(new Set())}
+              />
+              <FilterRow
+                label="Model"
+                opts={modelOpts}
+                sel={selModel}
+                onToggle={(v) => toggle(selModel, setSelModel, v)}
+                onClear={() => setSelModel(new Set())}
+              />
+            </div>
+          )}
+
           {runs.length === 0 ? (
             <div className="card px-4 py-6 text-center text-sm text-zinc-600">
               No trajectories for this task in the sample set.
@@ -144,7 +205,14 @@ export default function TaskDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {runs.map((run) => {
+                  {visibleRuns.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-6 text-center text-sm text-zinc-600">
+                        No runs match the selected harness / model filters.
+                      </td>
+                    </tr>
+                  )}
+                  {visibleRuns.map((run) => {
                     const agent = lk.agent(run.agentId)
                     return (
                       <tr key={run.id} className="border-b border-ink-800 last:border-0 hover:bg-ink-800/40">
@@ -192,6 +260,33 @@ function StatTriple({ label, stat, fmt }: { label: string; stat: Stat; fmt: (n: 
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** Toggle-chip filter row: "All" plus one chip per option. Empty selection
+ *  (All highlighted) means no filter. */
+function FilterRow({
+  label, opts, sel, onToggle, onClear,
+}: {
+  label: string
+  opts: string[]
+  sel: Set<string>
+  onToggle: (v: string) => void
+  onClear: () => void
+}) {
+  const chip = (active: boolean) =>
+    clsx(
+      'rounded px-2 py-0.5 text-xs transition-colors',
+      active ? 'bg-accent/20 text-accent ring-1 ring-accent/40' : 'bg-ink-800 text-zinc-400 hover:text-zinc-200',
+    )
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="w-14 shrink-0 text-[10px] uppercase tracking-wide text-zinc-600">{label}</span>
+      <button onClick={onClear} className={chip(sel.size === 0)}>All</button>
+      {opts.map((o) => (
+        <button key={o} onClick={() => onToggle(o)} className={chip(sel.has(o))}>{o}</button>
+      ))}
     </div>
   )
 }
