@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import AftReference from './AftReference'
 import { useAuth } from '../lib/auth'
@@ -48,12 +48,27 @@ export default function AftPanel({
   const [err, setErr] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
   const [precomputed, setPrecomputed] = useState(false)
+  // null = consensus (default); "judge:round" = a single raw audit pass.
+  const [pass, setPass] = useState<string | null>(null)
+  const [showPasses, setShowPasses] = useState(false)
 
-  useEffect(() => { onReport(report) }, [report, onReport])
+  // The report actually shown: consensus by default, or one raw judge×round
+  // pass when selected. (Switching passes also re-points the AFT step highlight.)
+  const shownReport = useMemo<AftReport | null>(() => {
+    if (!report) return null
+    if (!pass || !report.passes) return report
+    const p = report.passes.find((x) => `${x.judge}:${x.round}` === pass)
+    return p
+      ? { ...report, outcome: p.outcome, failure_modes: p.failure_modes, reward_hacking: p.reward_hacking, task_quality: p.task_quality, aggregated_from: undefined }
+      : report
+  }, [report, pass])
+
+  useEffect(() => { onReport(shownReport) }, [shownReport, onReport])
   useEffect(() => {
     const cached = (() => { try { return JSON.parse(localStorage.getItem(reportKey) ?? 'null') } catch { return null } })()
     setReport(cached)
     setPrecomputed(false)
+    setPass(null)
     setFeedback((() => { try { return JSON.parse(localStorage.getItem(fbKey) ?? '{}') } catch { return {} } })())
     // Auto-load a pre-computed report (baked in for the public site) if present.
     if (!cached) {
@@ -173,7 +188,59 @@ export default function AftPanel({
         </p>
       )}
 
-      {report && <Report report={report} activeStep={activeStep} onJumpToStep={onJumpToStep} feedback={feedback} setFb={setFb} canRecord={isMember} />}
+      {report && report.passes && report.passes.length > 0 && (
+        <div className="rounded-lg border border-ink-700 bg-ink-950/60 p-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setPass(null)}
+              className={clsx('rounded px-2 py-0.5 font-medium', pass === null ? 'bg-accent/20 text-accent ring-1 ring-accent/40' : 'bg-ink-800 text-zinc-400 hover:text-zinc-200')}
+            >
+              Consensus (majority)
+            </button>
+            <button onClick={() => setShowPasses((s) => !s)} className="text-zinc-500 hover:text-zinc-200">
+              {showPasses ? '▾' : '▸'} {report.passes.length} individual passes
+            </button>
+          </div>
+          {showPasses && (
+            <div className="mt-2 space-y-1">
+              {['opus', 'gpt', 'composer'].map((judge) => {
+                const rounds = report.passes!
+                  .filter((p) => p.judge === judge)
+                  .sort((a, b) => Number(a.round) - Number(b.round))
+                if (!rounds.length) return null
+                return (
+                  <div key={judge} className="flex flex-wrap items-center gap-1">
+                    <span className="w-16 shrink-0 font-mono text-zinc-500">{judge}</span>
+                    {rounds.map((p) => {
+                      const key = `${p.judge}:${p.round}`
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setPass(key)}
+                          className={clsx('rounded px-2 py-0.5', pass === key ? 'bg-accent/20 text-accent ring-1 ring-accent/40' : 'bg-ink-800 text-zinc-400 hover:text-zinc-200')}
+                        >
+                          r{p.round}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {shownReport && (
+        <>
+          {pass && (
+            <p className="text-[11px] text-zinc-500">
+              Showing the raw <span className="text-zinc-300">{pass.replace(':', ' · ')}</span> audit pass (1 of {report?.passes?.length}). Switch to <span className="text-zinc-300">Consensus</span> for the merged view.
+            </p>
+          )}
+          <Report report={shownReport} activeStep={activeStep} onJumpToStep={onJumpToStep} feedback={feedback} setFb={setFb} canRecord={isMember} reviewable={pass === null} />
+        </>
+      )}
 
       {showRef && <AftReference onClose={() => setShowRef(false)} />}
     </div>
@@ -220,11 +287,11 @@ function Chip({ code }: { code: string }) {
 }
 
 function Report({
-  report, activeStep, onJumpToStep, feedback, setFb, canRecord,
+  report, activeStep, onJumpToStep, feedback, setFb, canRecord, reviewable = true,
 }: {
   report: AftReport; activeStep: number; onJumpToStep: (i: number) => void
   feedback: Record<number, { decision: string; note: string }>; setFb: (i: number, p: Partial<{ decision: string; note: string }>) => void
-  canRecord: boolean
+  canRecord: boolean; reviewable?: boolean
 }) {
   const o = report.outcome
   return (
@@ -291,18 +358,22 @@ function Report({
                   {m.counterfactual.single_step_fix && <div className="mt-0.5 text-zinc-600">single-step fix</div>}
                 </div>
               )}
-              {/* human review */}
-              <div className="mt-2 flex items-center gap-1.5 border-t border-ink-800 pt-2">
-                <span className="text-[10px] uppercase tracking-wide text-zinc-600">your review:</span>
-                {(['agree', 'disagree'] as const).map((d) => (
-                  <button key={d} onClick={() => setFb(i, { decision: fb.decision === d ? '' : d })}
-                    className={clsx('chip', fb.decision === d ? (d === 'agree' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300') : 'bg-ink-800 text-zinc-400 hover:text-zinc-200')}>
-                    {d === 'agree' ? '👍 agree' : '👎 disagree'}
-                  </button>
-                ))}
-              </div>
-              <input value={fb.note} onChange={(e) => setFb(i, { note: e.target.value })} placeholder="add a note…"
-                className="mt-1.5 w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-accent" />
+              {/* human review — only on the consensus view (raw passes are read-only source) */}
+              {reviewable && (
+                <>
+                  <div className="mt-2 flex items-center gap-1.5 border-t border-ink-800 pt-2">
+                    <span className="text-[10px] uppercase tracking-wide text-zinc-600">your review:</span>
+                    {(['agree', 'disagree'] as const).map((d) => (
+                      <button key={d} onClick={() => setFb(i, { decision: fb.decision === d ? '' : d })}
+                        className={clsx('chip', fb.decision === d ? (d === 'agree' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300') : 'bg-ink-800 text-zinc-400 hover:text-zinc-200')}>
+                        {d === 'agree' ? '👍 agree' : '👎 disagree'}
+                      </button>
+                    ))}
+                  </div>
+                  <input value={fb.note} onChange={(e) => setFb(i, { note: e.target.value })} placeholder="add a note…"
+                    className="mt-1.5 w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-accent" />
+                </>
+              )}
             </div>
           )
         })}

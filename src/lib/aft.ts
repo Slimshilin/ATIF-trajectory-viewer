@@ -40,7 +40,20 @@ export interface AftReport {
   task_quality: { verdict: 'accept' | 'accept_with_caveats' | 'reject'; issues: string[]; verifier_structurally_hackable: boolean; structural_hackability_notes: string | null }
   notes_for_aggregation: string
   /** Present on aggregated bundle reports: provenance of the merge. */
-  aggregated_from?: { total_audits: number; judges: string[]; distinct_modes: number; primary: string; note: string }
+  aggregated_from?: { total_audits: number; judges: string[]; distinct_modes: number; outcome?: string; primary?: string; note: string }
+  /** The individual judge×round audit passes, for the per-pass tabs. */
+  passes?: AftPass[]
+}
+
+/** One raw judge×round audit, kept on the aggregated report so the panel can
+ *  show each pass alongside the consensus. */
+export interface AftPass {
+  judge: string
+  round: string
+  outcome: AftReport['outcome']
+  failure_modes: AftMode[]
+  reward_hacking: AftReport['reward_hacking']
+  task_quality: AftReport['task_quality']
 }
 
 export type AftEngine = 'claude' | 'codex'

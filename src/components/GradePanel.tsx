@@ -81,27 +81,27 @@ export default function GradePanel({
         </div>
       )}
 
-      {/* Verifier log — the real test-stdout.txt from the job, foldable. */}
-      {(verifierLog || grade.summary || failureReason) && (
-        <details className="rounded-lg border border-ink-700 bg-ink-950" open>
-          <summary className="cursor-pointer px-3 py-2 text-xs uppercase tracking-wide text-zinc-400 hover:text-zinc-200">
-            Verifier log{verifierLog ? '' : ' (summary)'}
-          </summary>
-          <div className="space-y-2 border-t border-ink-800 p-3">
-            {failureReason && (
-              <div className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 font-mono text-xs text-rose-200">
-                {failureReason}
-              </div>
-            )}
-            {grade.summary && <div className="font-mono text-[11px] text-zinc-500">{grade.summary}</div>}
-            {verifierLog && (
-              <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-ink-800 bg-ink-900 p-2.5 font-mono text-[11.5px] leading-relaxed text-zinc-300">
-                {verifierLog}
-              </pre>
-            )}
-          </div>
-        </details>
-      )}
+      {/* Verifier log — the FULL test-stdout.txt from the job (expandable, never
+          summarized). Shows the complete log or a clear absence notice. */}
+      <details className="rounded-lg border border-ink-700 bg-ink-950" open>
+        <summary className="cursor-pointer px-3 py-2 text-xs uppercase tracking-wide text-zinc-400 hover:text-zinc-200">
+          Verifier log
+        </summary>
+        <div className="space-y-2 border-t border-ink-800 p-3">
+          {failureReason && (
+            <div className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 font-mono text-xs text-rose-200">
+              {failureReason}
+            </div>
+          )}
+          {verifierLog ? (
+            <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded border border-ink-800 bg-ink-900 p-2.5 font-mono text-[11.5px] leading-relaxed text-zinc-300">
+              {verifierLog}
+            </pre>
+          ) : !failureReason ? (
+            <p className="text-xs text-zinc-600">No verifier log (test-stdout.txt) was shipped for this run.</p>
+          ) : null}
+        </div>
+      </details>
 
       {/* Findings (e.g. missing facts) */}
       {grade.findings && grade.findings.length > 0 && (

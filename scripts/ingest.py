@@ -103,9 +103,6 @@ MAX_FILE_BYTES = 1_000_000
 # multi-MB tool outputs (full file dumps, fuzzer logs); capping each field keeps
 # per-run files browser-friendly while preserving the step-by-step structure.
 STEP_FIELD_CAP = 40_000
-# Verifier log (jobs/<trial>/verifier/test-stdout.txt) cap. Externalized with the
-# trajectory (public/runs/<id>.json), so it loads only when a run is opened.
-VERIFIER_LOG_CAP = 60_000
 SKIP_EXTS = {".duckdb", ".sqlite", ".sqlite3", ".db", ".parquet", ".pyc", ".so",
              ".o", ".a", ".pyd", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz",
              ".zip", ".jar", ".class"}
@@ -548,6 +545,28 @@ def _remap_step(i, nsteps: int):
     return j
 
 
+def _majority(values):
+    """Most common non-None value. Ties broken by input order (judge priority)."""
+    from collections import Counter
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    cnt = Counter(vals)
+    top = max(cnt.values())
+    for v in vals:
+        if cnt[v] == top:
+            return v
+    return vals[0]
+
+
+def _median_int(values):
+    vals = sorted(v for v in values if isinstance(v, int))
+    if not vals:
+        return None
+    n = len(vals)
+    return vals[n // 2] if n % 2 else round((vals[n // 2 - 1] + vals[n // 2]) / 2)
+
+
 def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
     """Merge ALL judge×round audits for a job into one report. Failure modes are
     unioned and deduped by their (A,B,C,D) code; each merged mode records which
@@ -617,21 +636,75 @@ def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
     # Most-agreed-upon failure modes first.
     modes.sort(key=lambda m: (-m["occurrences"], str(m["aft"])))
 
+    # --- consensus (majority) outcome + verdicts across all 15 passes --------
+    outs = [r[2].get("outcome") or {} for r in reports]
+    rhs = [r[2].get("reward_hacking") or {} for r in reports]
+    tqs = [r[2].get("task_quality") or {} for r in reports]
+    maj_close = _majority([o.get("closeness") for o in outs])
+    rep_out = next((o for o in outs if o.get("closeness") == maj_close), outs[0])
+    consensus_outcome = dict(rep_out)
+    consensus_outcome["closeness"] = maj_close
+    consensus_outcome["step_where_lost"] = _median_int(
+        [_remap_step(o.get("step_where_lost"), nsteps) for o in outs])
+    uic = _median_int([o.get("unproductive_iteration_count") for o in outs])
+    if uic is not None:
+        consensus_outcome["unproductive_iteration_count"] = uic
+    tsa = _majority([o.get("test_stdout_available") for o in outs])
+    if tsa is not None:
+        consensus_outcome["test_stdout_available"] = tsa
+
+    maj_rh = _majority([rh.get("verdict") for rh in rhs])
+    consensus_rh = dict(next((rh for rh in rhs if rh.get("verdict") == maj_rh), rhs[0]))
+    consensus_rh["verdict"] = maj_rh
+    maj_tq = _majority([tq.get("verdict") for tq in tqs])
+    consensus_tq = dict(next((tq for tq in tqs if tq.get("verdict") == maj_tq), tqs[0]))
+    consensus_tq["verdict"] = maj_tq
+
+    # --- every raw pass (judge × round), step-remapped, for the per-pass tabs --
+    def _remap_fms(fms):
+        out = []
+        for fm in fms:
+            aft = fm.get("aft") or {}
+            out.append({
+                "name": fm.get("name"),
+                "description": fm.get("description"),
+                "evidence_quote": fm.get("evidence_quote"),
+                "step_indices": sorted({_remap_step(i, nsteps)
+                                        for i in (fm.get("step_indices") or []) if isinstance(i, int)}),
+                "aft": {"A": aft.get("A"), "B": aft.get("B"), "C": aft.get("C"), "D": aft.get("D")},
+                "counterfactual": fm.get("counterfactual"),
+            })
+        return out
+
+    passes = []
+    for judge, rnd, rep in reports:
+        o = dict(rep.get("outcome") or {})
+        if isinstance(o.get("step_where_lost"), int):
+            o["step_where_lost"] = _remap_step(o["step_where_lost"], nsteps)
+        passes.append({
+            "judge": judge, "round": rnd,
+            "outcome": o,
+            "failure_modes": _remap_fms(rep.get("failure_modes", [])),
+            "reward_hacking": rep.get("reward_hacking"),
+            "task_quality": rep.get("task_quality"),
+        })
+
     base = dict(reports[0][2])
     base["failure_modes"] = modes
     base["trial"] = {**(base.get("trial") or {}), "id": run_id}
-    out = dict(base.get("outcome") or {})
-    if isinstance(out.get("step_where_lost"), int):
-        out["step_where_lost"] = _remap_step(out["step_where_lost"], nsteps)
-    base["outcome"] = out
+    base["outcome"] = consensus_outcome
+    base["reward_hacking"] = consensus_rh
+    base["task_quality"] = consensus_tq
+    base["passes"] = passes
     base["aggregated_from"] = {
         "total_audits": len(reports),
         "judges": sorted({j for j, _, _ in reports}),
         "distinct_modes": len(modes),
-        "primary": f"{reports[0][0]}:r{reports[0][1]}",
-        "note": ("Union of all judge×round audits, deduped by (A,B,C,D). Step "
-                 "indices remapped from the audits' 1-indexing to the viewer's "
-                 "0-indexing."),
+        "outcome": "majority across all passes",
+        "note": ("Failure modes: union of all judge×round audits, deduped by "
+                 "(A,B,C,D). Outcome/verdicts: majority vote (step_where_lost = "
+                 "median). Individual passes are kept under `passes`. Step indices "
+                 "remapped from the audits' 1-indexing to the viewer's 0-indexing."),
     }
     # Evidence quotes may contain credentials lifted from the trajectory; scrub.
     base = json.loads(scrub_secrets(json.dumps(base, ensure_ascii=False)))
@@ -873,12 +946,11 @@ def load_hi_task(task_name: str) -> bool:
         raw_steps = traj.get("steps") or []
         steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
 
-        # The real verifier output (build/test logs, pass-fail detail).
+        # The real verifier output (build/test logs, pass-fail detail). Kept in
+        # FULL — the viewer shows the complete log (expandable), never a summary.
         vlog = read_text(os.path.join(job_dir, "verifier", "test-stdout.txt"))
         if vlog:
             vlog = scrub_secrets(vlog)
-            if len(vlog) > VERIFIER_LOG_CAP:
-                vlog = vlog[:VERIFIER_LOG_CAP] + f"\n…[truncated, {len(vlog) - VERIFIER_LOG_CAP} more chars]"
 
         run_id = slug(f"hi-{task_name}-{job_name}")[:120]
         emit_run({
