@@ -77,58 +77,65 @@ export function useDatasetStore(): Store {
 // scripts/ingest.py) so dataset.json stays small. We fetch a run's steps the
 // first time its trajectory opens and cache the result for the session.
 
-const stepCache = new Map<string, Step[]>()
-const stepInflight = new Map<string, Promise<Step[]>>()
+interface RunPayload { steps: Step[]; verifierLog: string | null }
+const payloadCache = new Map<string, RunPayload>()
+const payloadInflight = new Map<string, Promise<RunPayload>>()
 
-export function loadRunSteps(run: Run): Promise<Step[]> {
-  if (run.steps.length) return Promise.resolve(run.steps) // inline (upload / tour)
-  if (run.stepCount <= 0) return Promise.resolve([])       // genuinely metrics-only
-  const cached = stepCache.get(run.id)
+/** True when the run keeps its trajectory inline (uploads / guided tour). */
+function isInline(run: Run): boolean { return run.steps.length > 0 }
+/** True when there's an externalized public/runs/<id>.json to fetch. */
+function hasExternal(run: Run): boolean { return run.stepCount > 0 || !!run.hasVerifierLog }
+
+export function loadRunPayload(run: Run): Promise<RunPayload> {
+  if (isInline(run)) return Promise.resolve({ steps: run.steps, verifierLog: null })
+  if (!hasExternal(run)) return Promise.resolve({ steps: [], verifierLog: null })
+  const cached = payloadCache.get(run.id)
   if (cached) return Promise.resolve(cached)
-  const inflight = stepInflight.get(run.id)
+  const inflight = payloadInflight.get(run.id)
   if (inflight) return inflight
   const p = fetch(`${import.meta.env.BASE_URL}runs/${run.id}.json`)
     .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-    .then((j: { steps?: Step[] }) => {
-      const steps = j.steps ?? []
-      stepCache.set(run.id, steps)
-      return steps
+    .then((j: { steps?: Step[]; verifierLog?: string | null }) => {
+      const payload: RunPayload = { steps: j.steps ?? [], verifierLog: j.verifierLog ?? null }
+      payloadCache.set(run.id, payload)
+      return payload
     })
-    .finally(() => stepInflight.delete(run.id))
-  stepInflight.set(run.id, p)
+    .finally(() => payloadInflight.delete(run.id))
+  payloadInflight.set(run.id, p)
   return p
 }
 
-/** Resolve a run's trajectory steps, lazy-fetching the externalized file when
- *  needed. Returns `{ steps, loading, error }`; `steps` is `[]` while loading. */
+/** Resolve a run's externalized trajectory + verifier log, lazy-fetching the
+ *  file when needed. `steps` is `[]` and `verifierLog` null while loading. */
 export function useRunSteps(run: Run | undefined | null): {
   steps: Step[]
+  verifierLog: string | null
   loading: boolean
   error: string | null
 } {
-  const [steps, setSteps] = useState<Step[]>(() => run?.steps ?? [])
+  const [payload, setPayload] = useState<RunPayload>(() => ({ steps: run?.steps ?? [], verifierLog: null }))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!run) { setSteps([]); return }
-    if (run.steps.length) { setSteps(run.steps); setLoading(false); setError(null); return }
-    if (run.stepCount <= 0) { setSteps([]); setLoading(false); setError(null); return }
-    const cached = stepCache.get(run.id)
-    if (cached) { setSteps(cached); setLoading(false); setError(null); return }
+    if (!run) { setPayload({ steps: [], verifierLog: null }); return }
+    if (isInline(run)) { setPayload({ steps: run.steps, verifierLog: null }); setLoading(false); setError(null); return }
+    if (!hasExternal(run)) { setPayload({ steps: [], verifierLog: null }); setLoading(false); setError(null); return }
+    const cached = payloadCache.get(run.id)
+    if (cached) { setPayload(cached); setLoading(false); setError(null); return }
     let cancelled = false
-    setSteps([]) // clear stale steps from a previously-viewed run
+    setPayload({ steps: [], verifierLog: null }) // clear stale data from a previously-viewed run
     setLoading(true)
     setError(null)
-    loadRunSteps(run)
-      .then((s) => { if (!cancelled) setSteps(s) })
+    loadRunPayload(run)
+      .then((pl) => { if (!cancelled) setPayload(pl) })
       .catch((e) => { if (!cancelled) setError(String(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id])
 
-  return { steps, loading, error }
+  return { steps: payload.steps, verifierLog: payload.verifierLog, loading, error }
 }
 
 // --- lookups ---------------------------------------------------------------

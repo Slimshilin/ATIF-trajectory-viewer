@@ -133,6 +133,9 @@ export interface Run {
   /** Precomputed at ingest (steps with role "user" > 1) so listing pages can
    *  flag simulated-user conversations without loading the trajectory. */
   multiUser?: boolean
+  /** Whether public/runs/<id>.json carries the verifier log (test-stdout.txt),
+   *  lazy-loaded with the trajectory and shown in the Reward & Verifier panel. */
+  hasVerifierLog?: boolean
   turns: number
   durationSec: number | null
   /** Distinct artifacts the run touched (derived from step mutations). */

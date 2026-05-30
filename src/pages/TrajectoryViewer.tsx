@@ -151,7 +151,7 @@ export default function TrajectoryViewer() {
   // Trajectories are externalized to public/runs/<id>.json and lazy-loaded the
   // first time a run opens (inline for uploaded & tour runs).
   const runForSteps = data?.runs.find((x) => x.id === runId)
-  const { steps: loadedSteps, error: stepsError } = useRunSteps(runForSteps)
+  const { steps: loadedSteps, verifierLog, error: stepsError } = useRunSteps(runForSteps)
 
   // Deep-link a step via ?step=N (used by the guided tour and shareable links).
   const [searchParams] = useSearchParams()
@@ -414,7 +414,7 @@ export default function TrajectoryViewer() {
             {panel === 'step' ? (
               <StepPanel step={step} />
             ) : panel === 'analysis' ? (
-              <GradePanel grade={run.grade} failureReason={run.failureReason} />
+              <GradePanel grade={run.grade} failureReason={run.failureReason} verifierLog={verifierLog} />
             ) : panel === 'aft' ? (
               <AftPanel
                 run={erun}

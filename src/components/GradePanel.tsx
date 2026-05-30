@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import Markdown from './Markdown'
 import { fmtReward } from '../lib/format'
 import type { Grade } from '../lib/types'
 
@@ -16,9 +15,11 @@ function ScoreBar({ value, max = 1 }: { value: number; max?: number }) {
 export default function GradePanel({
   grade,
   failureReason,
+  verifierLog,
 }: {
   grade?: Grade | null
   failureReason?: string | null
+  verifierLog?: string | null
 }) {
   if (!grade) {
     return (
@@ -80,11 +81,11 @@ export default function GradePanel({
         </div>
       )}
 
-      {/* Verifier log — foldable + rendered */}
-      {(grade.summary || failureReason) && (
+      {/* Verifier log — the real test-stdout.txt from the job, foldable. */}
+      {(verifierLog || grade.summary || failureReason) && (
         <details className="rounded-lg border border-ink-700 bg-ink-950" open>
           <summary className="cursor-pointer px-3 py-2 text-xs uppercase tracking-wide text-zinc-400 hover:text-zinc-200">
-            Verifier log
+            Verifier log{verifierLog ? '' : ' (summary)'}
           </summary>
           <div className="space-y-2 border-t border-ink-800 p-3">
             {failureReason && (
@@ -92,7 +93,12 @@ export default function GradePanel({
                 {failureReason}
               </div>
             )}
-            {grade.summary && <Markdown content={grade.summary} />}
+            {grade.summary && <div className="font-mono text-[11px] text-zinc-500">{grade.summary}</div>}
+            {verifierLog && (
+              <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-ink-800 bg-ink-900 p-2.5 font-mono text-[11.5px] leading-relaxed text-zinc-300">
+                {verifierLog}
+              </pre>
+            )}
           </div>
         </details>
       )}

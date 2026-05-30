@@ -102,6 +102,9 @@ MAX_FILE_BYTES = 1_000_000
 # multi-MB tool outputs (full file dumps, fuzzer logs); capping each field keeps
 # per-run files browser-friendly while preserving the step-by-step structure.
 STEP_FIELD_CAP = 40_000
+# Verifier log (jobs/<trial>/verifier/test-stdout.txt) cap. Externalized with the
+# trajectory (public/runs/<id>.json), so it loads only when a run is opened.
+VERIFIER_LOG_CAP = 60_000
 SKIP_EXTS = {".duckdb", ".sqlite", ".sqlite3", ".db", ".parquet", ".pyc", ".so",
              ".o", ".a", ".pyd", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz",
              ".zip", ".jar", ".class"}
@@ -498,10 +501,17 @@ def emit_run(run: dict) -> None:
     # Precompute the only step-derived flag the listing pages need, since they
     # no longer have the inline steps to scan.
     run["multiUser"] = sum(1 for s in steps if s.get("role") == "user") > 1
-    if steps:
+    # The verifier log is externalized alongside the steps (loads with the run).
+    vlog = run.pop("verifierLog", None)
+    if vlog:
+        run["hasVerifierLog"] = True
+    if steps or vlog:
+        payload = {"steps": steps}
+        if vlog:
+            payload["verifierLog"] = vlog
         os.makedirs(RUNS_DIR, exist_ok=True)
         with open(os.path.join(RUNS_DIR, f"{run['id']}.json"), "w", encoding="utf-8") as f:
-            json.dump({"steps": steps}, f, ensure_ascii=False)
+            json.dump(payload, f, ensure_ascii=False)
     run["steps"] = []
     runs.append(run)
 
@@ -783,6 +793,13 @@ def load_hi_task(task_name: str) -> bool:
         raw_steps = traj.get("steps") or []
         steps = [step_from_atif(s, i) for i, s in enumerate(raw_steps[:MAX_STEPS])]
 
+        # The real verifier output (build/test logs, pass-fail detail).
+        vlog = read_text(os.path.join(job_dir, "verifier", "test-stdout.txt"))
+        if vlog:
+            vlog = scrub_secrets(vlog)
+            if len(vlog) > VERIFIER_LOG_CAP:
+                vlog = vlog[:VERIFIER_LOG_CAP] + f"\n…[truncated, {len(vlog) - VERIFIER_LOG_CAP} more chars]"
+
         run_id = slug(f"hi-{task_name}-{job_name}")[:120]
         emit_run({
             "id": run_id,
@@ -790,6 +807,7 @@ def load_hi_task(task_name: str) -> bool:
             "status": "passed" if passed else ("failed" if reward is not None else "completed"),
             "passed": passed, "reward": reward,
             "steps": steps,
+            "verifierLog": vlog,
             "artifacts": run_artifacts(steps),
             "turns": sum(1 for s in steps if s["role"] == "agent"),
             "durationSec": iso_duration(started, finished),
