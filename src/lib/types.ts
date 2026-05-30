@@ -112,6 +112,10 @@ export interface Grade {
   gate?: Record<string, boolean | null>
   breakdown?: Record<string, string> | null
   findings?: GradeFinding[] | null
+  /** Verifier context distilled from the AFT audit (what the verifier checked,
+   *  what the agent produced, the exact failure) — populated for the audited
+   *  runs, which are the ones shipping no raw test-stdout.txt. */
+  verifier?: { checked?: string | null; produced?: string | null; quote?: string | null } | null
 }
 
 export interface Run {

@@ -100,9 +100,25 @@ export default function GradePanel({
           ) : (
             <p className="text-xs text-zinc-600">
               {failureReason
-                ? 'No verifier stdout — the run ended with the error above before the verifier captured any test output.'
-                : 'No verifier log (test-stdout.txt) was shipped for this run.'}
+                ? 'No raw verifier stdout — the run ended with the error above before the verifier captured any test output.'
+                : 'No raw verifier stdout (test-stdout.txt) was shipped for this run.'}
             </p>
+          )}
+          {/* When there's no raw stdout, the AFT audit's reading of the verifier
+              is the best available signal — show it. */}
+          {grade.verifier && (grade.verifier.checked || grade.verifier.produced || grade.verifier.quote) && (
+            <div className="space-y-1.5 rounded border border-ink-800 bg-ink-900/60 p-2.5 text-[11.5px] leading-relaxed">
+              <div className="text-[10px] uppercase tracking-wide text-zinc-600">Verifier (read from the AFT audit)</div>
+              {grade.verifier.checked && (
+                <div><span className="text-zinc-400">checked:</span> <span className="text-zinc-300">{grade.verifier.checked}</span></div>
+              )}
+              {grade.verifier.produced && (
+                <div><span className="text-zinc-400">agent produced:</span> <span className="text-zinc-300">{grade.verifier.produced}</span></div>
+              )}
+              {grade.verifier.quote && (
+                <pre className="mt-1 overflow-auto whitespace-pre-wrap rounded bg-ink-950 p-2 text-rose-300">{grade.verifier.quote}</pre>
+              )}
+            </div>
           )}
         </div>
       </details>

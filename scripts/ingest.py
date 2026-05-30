@@ -587,7 +587,7 @@ def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
     base outcome / reward-hacking / task-quality verdicts come from the highest
     -priority judge's pass (opus → gpt → composer). Written to public/aft/."""
     if not os.path.isdir(audit_dir):
-        return False
+        return None
     reports = []  # (judge, round, report)
     for fn in sorted(os.listdir(audit_dir)):
         m = _AUDIT_RE.search(fn)
@@ -603,7 +603,7 @@ def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
         rnd = m.group(2) if m else "?"
         reports.append((judge, rnd, rep))
     if not reports:
-        return False
+        return None
     # Highest-priority pass supplies the representative wording + base verdicts.
     reports.sort(key=lambda r: (JUDGE_PRIORITY.get(r[0], 9), r[1]))
 
@@ -723,7 +723,14 @@ def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
     os.makedirs(AFT_DIR, exist_ok=True)
     with open(os.path.join(AFT_DIR, f"{run_id}.json"), "w", encoding="utf-8") as f:
         json.dump(base, f, ensure_ascii=False)
-    return True
+    # Verifier context for the run's grade — useful for the audited (pre-analyzed)
+    # jobs, which are exactly the ones that ship no test-stdout.txt.
+    o = base.get("outcome") or {}
+    return {
+        "checked": o.get("what_verifier_checked"),
+        "produced": o.get("what_agent_produced"),
+        "quote": o.get("exact_failure_quote"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -965,7 +972,7 @@ def load_hi_task(task_name: str) -> bool:
             vlog = scrub_secrets(vlog)
 
         run_id = slug(f"hi-{task_name}-{job_name}")[:120]
-        emit_run({
+        run_obj = {
             "id": run_id,
             "taskId": tid, "agentId": aid, "vendorId": vid, "format": "atif",
             "status": "passed" if passed else ("failed" if reward is not None else "completed"),
@@ -982,12 +989,20 @@ def load_hi_task(task_name: str) -> bool:
                 "gate": None, "breakdown": None, "findings": None,
             },
             "failureReason": clean_exc(exc),
-        })
+        }
+        emit_run(run_obj)  # keeps the dict referenced in `runs`
         loaded += 1
 
-        # Aggregate all judge×round audits this job carries into one report.
-        if aggregate_audits(os.path.join(job_dir, "audits"), run_id, len(steps)):
+        # Aggregate all judge×round audits this job carries into one report, and
+        # fold its verifier context (what the verifier checked / found) into the
+        # grade — this is the only verifier signal for the audited jobs, which
+        # are exactly the ones that ship no test-stdout.txt.
+        av = aggregate_audits(os.path.join(job_dir, "audits"), run_id, len(steps))
+        if av:
             aft_runs.add(run_id)
+            vinfo = {k: v for k, v in av.items() if v}
+            if vinfo:
+                run_obj["grade"]["verifier"] = vinfo
 
     print(f"  · {task_name}: {loaded} trial(s)")
     return True
