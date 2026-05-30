@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth'
 import {
   buildAftPrompt, runAft,
   aftLabel, ENGINE_MODELS, ENGINE_LABEL, EFFORTS,
-  type AftConfig, type AftEngine, type AftReport,
+  type AftConfig, type AftEngine, type AftReport, type AftMode,
 } from '../lib/aft'
 import type { Agent, Run, Task, Vendor } from '../lib/types'
 
@@ -294,6 +294,17 @@ function Report({
   canRecord: boolean; reviewable?: boolean
 }) {
   const o = report.outcome
+  // Order failure modes by the earliest step each one touches (modes with no
+  // step land last); ties keep the more-agreed-upon mode first.
+  const minStep = (m: AftMode) => (m.step_indices && m.step_indices.length ? Math.min(...m.step_indices) : Infinity)
+  const sortedModes = [...report.failure_modes].sort(
+    (a, b) => minStep(a) - minStep(b) || (b.occurrences ?? 0) - (a.occurrences ?? 0),
+  )
+  // Consensus view only: filter to modes flagged by ≥ N distinct judges.
+  const isConsensus = !!report.aggregated_from
+  const judgeCount = (m: AftMode) => new Set((m.seen_by ?? []).map((s) => s.split(':')[0])).size
+  const [minJudges, setMinJudges] = useState(1)
+  const shownModes = isConsensus ? sortedModes.filter((m) => judgeCount(m) >= minJudges) : sortedModes
   return (
     <div className="space-y-4">
       <div data-tour="aft-outcome" className="rounded-lg border border-ink-700 bg-ink-950 p-3">
@@ -317,14 +328,36 @@ function Report({
 
       <div data-tour="aft-failures" className="space-y-2">
         <div className="flex items-baseline justify-between text-xs uppercase tracking-wide text-zinc-500">
-          <span>Failure modes ({report.failure_modes.length})</span>
+          <span>Failure modes ({shownModes.length === report.failure_modes.length ? report.failure_modes.length : `${shownModes.length} of ${report.failure_modes.length}`})</span>
           {report.aggregated_from && (
             <span className="normal-case tracking-normal text-zinc-600" title={report.aggregated_from.note}>
               merged from {report.aggregated_from.total_audits} judge×round audits
             </span>
           )}
         </div>
-        {report.failure_modes.map((m, i) => {
+        {isConsensus && (
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+            <span className="uppercase tracking-wide">flagged by ≥</span>
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                onClick={() => setMinJudges(n)}
+                className={clsx('rounded px-1.5 py-0.5', minJudges === n ? 'bg-accent/20 text-accent ring-1 ring-accent/40' : 'bg-ink-800 text-zinc-400 hover:text-zinc-200')}
+              >
+                {n} judge{n > 1 ? 's' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+        {shownModes.length === 0 && (
+          <p className="rounded-lg border border-dashed border-ink-700 px-3 py-4 text-center text-xs text-zinc-600">
+            No failure mode was flagged by ≥ {minJudges} judges.
+          </p>
+        )}
+        {shownModes.map((m) => {
+          // Key feedback by the mode's position in the canonical list so it
+          // stays stable across sorting / judge-filtering.
+          const i = report.failure_modes.indexOf(m)
           const fb = feedback[i] ?? { decision: '', note: '' }
           const onStep = m.step_indices?.includes(activeStep)
           return (
