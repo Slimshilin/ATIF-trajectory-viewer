@@ -101,6 +101,20 @@ const BASH_RE = /(^|_)(bash|shell|terminal|run_command|run_shell_command|exec|ex
 // Includes both snake_case (write_file, replace_file) and the capitalized
 // single-word forms (Write, Edit, Replace) that Claude Code emits.
 const EDIT_RE = /(^|_)(edit|write|replace|str_replace|write_file|create_file|edit_file|replace_file|apply_patch|insert)(_|$)/i
+// Read tools — their observation is the file's content, which we use to fill in
+// the body of files the agent wrote via computed/redirected commands (where the
+// write itself carries no literal content) and to seed str_replace edits.
+const READ_RE = /(^|_)(read|read_file|cat|view|view_file|open_file|show_file|get_file)(_|$)/i
+
+/** A bare `cat FILE` (no pipe / redirect / chaining) whose output is the whole
+ *  file. Returns the path, or null if the command isn't a single-file cat. */
+function matchCatRead(cmd: string): string | null {
+  if (/[|>;&]|<</.test(cmd)) return null
+  const m = cmd.match(/^\s*cat\s+(?:-\S+\s+)*(['"]?)([^'"\s]+)\1\s*$/)
+  if (!m) return null
+  const p = m[2]
+  return /\.\w+$|\//.test(p) ? p : null
+}
 
 /**
  * Parse a shell command and infer file-system mutations from it.
@@ -436,6 +450,14 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
   let userTurns = 0
   const pending: TermEntry[] = [] // entries awaiting an output (messages format)
   const viewLinks: { path: string; entry: TermEntry; step: number }[] = []
+  // path -> latest content the agent has SEEN (via a read/cat). Used to fill the
+  // body of computed/redirected writes and to seed str_replace edits.
+  const readCache = new Map<string, string>()
+  const readLinks: { path: string; entry: TermEntry }[] = [] // deferred reads (messages format)
+  const captureRead = (path: string, output: string | undefined) => {
+    if (!path || output == null || output === '') return
+    readCache.set(path, stripViewHeader(output))
+  }
 
   // Seed the file system with the initial environment files (from the task
   // directory / Dockerfile COPY), so the explorer reflects what the agent sees
@@ -512,7 +534,7 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
           let content: string | undefined = fullContent ?? undefined
           let op: string = argObj.command || (fullContent ? 'create' : 'edit')
           if (content == null && newStr != null) {
-            const prev = files.get(String(path))?.content
+            const prev = files.get(String(path))?.content ?? readCache.get(String(path))
             if (prev != null && oldStr != null) {
               content = prev.includes(String(oldStr)) ? prev.replace(String(oldStr), String(newStr)) : prev + '\n' + String(newStr)
             } else {
@@ -551,6 +573,19 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
             assignContent(w.path, w.op, w.content, i)
           }
         }
+        // Read-back: a bare `cat FILE` echoes the file's content into the output.
+        const catPath = matchCatRead(String(rawCmd))
+        if (catPath) {
+          if (entry.output) captureRead(catPath, entry.output)
+          else readLinks.push({ path: catPath, entry })
+        }
+      } else if (READ_RE.test(tc.name) && argObj) {
+        // Structured read tool — its observation is the file's content.
+        const path = argObj.path || argObj.filepath || argObj.file_path || argObj.filename
+        if (path) {
+          if (entry.output) captureRead(String(path), entry.output)
+          else readLinks.push({ path: String(path), entry })
+        }
       } else if (argObj) {
         const path = argObj.path || argObj.filepath || argObj.file_path || argObj.filename
         if (path && /\.\w+$/.test(String(path))) assignContent(String(path), 'touched', undefined, i)
@@ -561,6 +596,16 @@ export function reconstructWorkspace(steps: Step[], upto: number, seedFiles: Tas
   // fold in file contents returned by `edit view` (output known after pairing)
   for (const v of viewLinks) {
     if (v.entry.output) assignContent(v.path, 'view', stripViewHeader(v.entry.output), v.step)
+  }
+  // Resolve deferred reads (messages-format tool results) into the read cache.
+  for (const r of readLinks) captureRead(r.path, r.entry.output)
+  // Fill the body of files the agent wrote but whose content we couldn't capture
+  // from the write itself (computed/redirected writes) using what a later read
+  // exposed. Keeps the file's write op/step — only the content is enriched.
+  for (const [path, entry] of files) {
+    if ((entry.content == null || entry.content === '') && readCache.has(path)) {
+      files.set(path, { ...entry, content: readCache.get(path) })
+    }
   }
 
   return { terminal, files: [...files.values()], conversation, userTurns }

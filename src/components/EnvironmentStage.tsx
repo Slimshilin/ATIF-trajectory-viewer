@@ -28,6 +28,7 @@ type ArtifactRef =
   | { kind: 'computer'; id: 'computer'; label: string }
   | { kind: 'answer'; id: 'answer'; label: string }
   | { kind: 'arc'; id: 'arc'; label: string }
+  | { kind: 'file'; id: string; label: string }
 
 function baseName(p?: string) {
   if (!p) return 'sheet'
@@ -344,8 +345,23 @@ function findArcAgentOutput(steps: Step[], upto: number): ArcAgentOutput | null 
   return null
 }
 
-function ArtifactViewer({ steps, activeStep, task }: { steps: Step[]; activeStep: number; task?: Task }) {
+function ArtifactViewer({ steps, activeStep, task, ws }: { steps: Step[]; activeStep: number; task?: Task; ws: Workspace }) {
   const stage = useMemo(() => reconstructStage(steps, activeStep), [steps, activeStep])
+
+  // Files the agent wrote/edited (with captured content) become renderable
+  // artifacts too — so "what the agent did to the files" shows here, not just
+  // spreadsheets/docs/grids. Most-recently-written first, capped to stay tidy.
+  const WRITE_OPS = new Set(['create', 'edit', 'append'])
+  const writtenFiles = useMemo(
+    () =>
+      ws.files
+        .filter((f) => WRITE_OPS.has(f.op) && f.content)
+        .sort((a, b) => b.step - a.step)
+        .slice(0, 8),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ws.files],
+  )
+  const fileChangedAt = ws.files.find((f) => f.step === activeStep && WRITE_OPS.has(f.op) && f.content)
 
   // ARC-AGI hard-coded panel: expected grid (always) + agent's latest output.
   const arcExpected = useMemo(() => findArcExpected(task), [task])
@@ -377,27 +393,31 @@ function ArtifactViewer({ steps, activeStep, task }: { steps: Step[]; activeStep
     if (stage.computer || stage.screenshot)
       list.push({ kind: 'computer', id: 'computer', label: stage.screenshot ? 'Screen' : 'Desktop' })
     if (stage.answer) list.push({ kind: 'answer', id: 'answer', label: 'Final answer' })
+    writtenFiles.forEach((f) => list.push({ kind: 'file', id: f.path, label: baseName(f.path) }))
     return list
-  }, [stage, isArc])
+  }, [stage, isArc, writtenFiles])
 
   const [selected, setSelected] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
 
-  // auto-follow: when the active step changes something, focus that artifact
+  // auto-follow: when the active step changes something, focus that artifact —
+  // a written file takes priority so you see exactly what the agent just wrote.
   useEffect(() => {
+    if (fileChangedAt) { setSelected('file:' + fileChangedAt.path); return }
     const changed = [...stage.changedAt]
     if (!changed.length) return
     const c = changed[0]
     if (c.startsWith('sheet:')) setSelected('sheet:' + c.slice(6))
     else if (c.startsWith('doc:')) setSelected('doc:' + c.slice(4))
     else setSelected(c) // 'web' | 'computer' | 'answer'
-  }, [activeStep, stage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStep, stage, fileChangedAt?.path])
 
   // Even with no generic visual, the ARC mode always renders the expected grid.
-  if (!stage.hasVisual && !isArc) {
+  if (!stage.hasVisual && !isArc && writtenFiles.length === 0) {
     return (
       <div className="grid h-full place-items-center p-6 text-center text-xs text-zinc-600">
-        No rendered artifact yet — the agent hasn't produced a spreadsheet, document, web view, screenshot, or answer up to this step.
+        No rendered artifact yet — the agent hasn't written a file or produced a spreadsheet, document, web view, screenshot, or answer up to this step.
       </div>
     )
   }
@@ -450,13 +470,19 @@ function ArtifactViewer({ steps, activeStep, task }: { steps: Step[]; activeStep
           )}
           {cur?.kind === 'answer' && stage.answer && <AnswerView answer={stage.answer} />}
           {cur?.kind === 'arc' && arcExpected && <ArcCompareView expected={arcExpected} agent={arcAgent} />}
+          {cur?.kind === 'file' && (() => {
+            const f = ws.files.find((x) => x.path === cur.id)
+            return f?.content
+              ? <FileRenderer file={{ path: f.path, kind: kindFromPath(f.path), content: f.content }} />
+              : <div className="p-4 text-xs text-zinc-600">No captured content for {cur.id}.</div>
+          })()}
         </div>
       </div>
     </div>
   )
 }
 
-const ICON: Record<string, string> = { sheet: '▦', doc: '▤', web: '🌐', computer: '🖥', answer: '★', arc: '▤' }
+const ICON: Record<string, string> = { sheet: '▦', doc: '▤', web: '🌐', computer: '🖥', answer: '★', arc: '▤', file: '📄' }
 // Distinct accent per artifact type so switching between them reads at a glance.
 const KIND_STYLE: Record<string, string> = {
   sheet: 'bg-emerald-500/20 text-emerald-200 ring-emerald-500/40',
@@ -465,6 +491,7 @@ const KIND_STYLE: Record<string, string> = {
   computer: 'bg-amber-500/20 text-amber-200 ring-amber-500/40',
   answer: 'bg-rose-500/20 text-rose-200 ring-rose-500/40',
   arc: 'bg-fuchsia-500/20 text-fuchsia-200 ring-fuchsia-500/40',
+  file: 'bg-zinc-500/20 text-zinc-100 ring-zinc-500/40',
 }
 
 // ---------------------------------------------------------------------------
@@ -558,10 +585,10 @@ function ArcCompareView({ expected, agent }: { expected: number[][]; agent: ArcA
 }
 
 function keyFor(a: ArtifactRef): string {
-  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind
+  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind === 'file' ? 'file:' + a.id : a.kind
 }
 function changeKey(a: ArtifactRef): string {
-  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind
+  return a.kind === 'sheet' ? 'sheet:' + a.id : a.kind === 'doc' ? 'doc:' + a.id : a.kind === 'file' ? 'file:' + a.id : a.kind
 }
 
 // ===========================================================================
@@ -738,6 +765,16 @@ function WorkspacePanel({ ws, activeStep, task }: { ws: Workspace; activeStep: n
   const [tab, setTab] = useState<string>(ws.terminal.length ? 'terminal' : isConvo ? 'chat' : 'terminal')
   const [fsView, setFsView] = useState<'agent' | 'human'>('agent')
 
+  // Auto-follow: when the active step writes/edits a file, open it so you can
+  // see exactly which file the agent changed at this step and how it renders.
+  useEffect(() => {
+    const changed = ws.files.filter(
+      (f) => f.step === activeStep && (f.op === 'create' || f.op === 'edit' || f.op === 'append'),
+    )
+    if (changed.length) setTab('file:' + changed[changed.length - 1].path)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStep])
+
   const humanFiles: FileEntry[] = useMemo(
     () =>
       (task?.files ?? [])
@@ -846,7 +883,7 @@ export default function EnvironmentStage({ steps, activeStep, task }: { steps: S
       </Panel>
       <PanelResizeHandle className="h-1 bg-ink-700 transition-colors hover:bg-accent/50" />
       <Panel defaultSize={48} minSize={15}>
-        <ArtifactViewer steps={steps} activeStep={activeStep} task={task} />
+        <ArtifactViewer steps={steps} activeStep={activeStep} task={task} ws={ws} />
       </Panel>
     </PanelGroup>
   )
