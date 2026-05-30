@@ -586,7 +586,7 @@ def hf_file_cached(rel_path: str) -> bytes:
 
 
 def _tb_pretty(name: str) -> str:
-    return name.replace("-", " ").title()
+    return name  # raw task name, kept verbatim (no title-casing)
 
 
 def load_tb_tasks(picks: list[str]) -> None:
@@ -728,7 +728,7 @@ def load_hi_task(task_name: str) -> bool:
 
     vid = vendor("Harbor Index")
     tid = slug(f"hi-{task_name}")
-    title = task_name.replace("-", " ").title()
+    title = task_name  # raw Harbor task name, kept verbatim (no title-casing)
     tasks.append({
         "id": tid, "vendorId": vid, "title": title, "source": "harbor",
         "category": meta.get("category", "Harbor task"),
