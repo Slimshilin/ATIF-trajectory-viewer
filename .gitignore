@@ -21,6 +21,9 @@ __pycache__/
 #   3. Run: python3 scripts/ingest.py
 data/
 
+# --- Local dev tooling (Claude Code workflows, settings, etc.) ---
+.claude/
+
 # --- Editor / OS ---
 .DS_Store
 .idea/
