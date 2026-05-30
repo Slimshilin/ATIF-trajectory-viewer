@@ -180,6 +180,19 @@ export default function AftPanel({
   )
 }
 
+/** "opus:r1","opus:r3","gpt:r2" → "opus(r1,r3), gpt(r2)" */
+function formatJudges(seenBy: string[]): string {
+  const byJudge = new Map<string, string[]>()
+  for (const s of seenBy) {
+    const idx = s.indexOf(':')
+    const j = idx >= 0 ? s.slice(0, idx) : s
+    const r = idx >= 0 ? s.slice(idx + 1) : ''
+    if (!byJudge.has(j)) byJudge.set(j, [])
+    if (r) byJudge.get(j)!.push(r)
+  }
+  return [...byJudge.entries()].map(([j, rs]) => (rs.length ? `${j}(${rs.join(',')})` : j)).join(', ')
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -236,7 +249,14 @@ function Report({
       </div>
 
       <div data-tour="aft-failures" className="space-y-2">
-        <div className="text-xs uppercase tracking-wide text-zinc-500">Failure modes ({report.failure_modes.length})</div>
+        <div className="flex items-baseline justify-between text-xs uppercase tracking-wide text-zinc-500">
+          <span>Failure modes ({report.failure_modes.length})</span>
+          {report.aggregated_from && (
+            <span className="normal-case tracking-normal text-zinc-600" title={report.aggregated_from.note}>
+              merged from {report.aggregated_from.total_audits} judge×round audits
+            </span>
+          )}
+        </div>
         {report.failure_modes.map((m, i) => {
           const fb = feedback[i] ?? { decision: '', note: '' }
           const onStep = m.step_indices?.includes(activeStep)
@@ -244,6 +264,11 @@ function Report({
             <div key={i} className={clsx('rounded-lg border p-3', onStep ? 'border-accent/50 bg-accent/5' : 'border-ink-700')}>
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-sm font-medium text-white">{m.name}</span>
+                {m.occurrences != null && m.seen_by && m.seen_by.length > 0 && (
+                  <span className="chip bg-ink-800 text-zinc-400" title={`flagged by ${m.seen_by.join(', ')}`}>
+                    {m.occurrences}× · {formatJudges(m.seen_by)}
+                  </span>
+                )}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 <Chip code={m.aft.A} /><Chip code={m.aft.B} /><Chip code={m.aft.C} /><Chip code={m.aft.D} />

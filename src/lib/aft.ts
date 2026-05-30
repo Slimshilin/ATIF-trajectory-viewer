@@ -15,6 +15,11 @@ export interface AftMode {
   step_indices: number[] | null
   aft: { A: string; B: string; C: string; D: string }
   counterfactual: { single_step_fix: boolean; X: string; Y: string } | null
+  /** Which judge:round audit passes flagged this (A,B,C,D) — present on the
+   *  aggregated bundle reports (e.g. ["opus:r1", "gpt:r2"]). */
+  seen_by?: string[]
+  /** How many of the 15 passes flagged it. */
+  occurrences?: number
 }
 
 export interface AftReport {
@@ -34,6 +39,8 @@ export interface AftReport {
   reward_hacking: { verdict: 'clean' | 'suspicious' | 'hack'; categories_triggered: string[]; evidence: string }
   task_quality: { verdict: 'accept' | 'accept_with_caveats' | 'reject'; issues: string[]; verifier_structurally_hackable: boolean; structural_hackability_notes: string | null }
   notes_for_aggregation: string
+  /** Present on aggregated bundle reports: provenance of the merge. */
+  aggregated_from?: { total_audits: number; judges: string[]; distinct_modes: number; primary: string; note: string }
 }
 
 export type AftEngine = 'claude' | 'codex'

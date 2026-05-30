@@ -84,11 +84,12 @@ TB_TASK_PICKS = [
 # from this list — see Showcase.tsx.
 HI_TASK_PICKS: list[str] | None = None  # None → load every directory found
 
-# Which audit report to promote per task. "opus__r1" generally has the
-# best-articulated AFT codes; we fall back to whatever's available.
-PREFERRED_AUDITS = ["opus__r1.report.json", "opus__r2.report.json",
-                    "opus__r3.report.json", "gpt__r1.report.json",
-                    "composer__r1.report.json"]
+# Every audited job ships 15 AFT passes — 3 judges (opus, gpt, composer) × 5
+# rounds. We aggregate ALL of them into one report per task (union of failure
+# modes, deduped by the A×B×C×D code), matching the canonical site. The judge
+# order below decides which pass supplies the representative wording + the base
+# outcome/reward-hacking/task-quality verdicts.
+JUDGE_PRIORITY = {"opus": 0, "gpt": 1, "composer": 2}
 
 MAX_STEPS = 10_000
 # Inline cap per task-file. Most source files are well under this; oversized
@@ -526,39 +527,118 @@ def iso_duration(a, b):
 
 
 # ---------------------------------------------------------------------------
-# AFT audit promotion.
+# AFT audit aggregation.
+# The auditors number steps 1..N over ALL raw steps; the viewer is 0-indexed,
+# so every step reference is remapped by -1 (clamped into range).
 # ---------------------------------------------------------------------------
 
-def promote_audit(audit_path: str, run_id: str) -> bool:
-    """Copy one audit report into public/aft/<run_id>.json. The audit is
-    already in AFT v1.0 shape; we just rewrite the trial id."""
-    try:
-        rep = json.load(open(audit_path, encoding="utf-8"))
-    except Exception:
+_AUDIT_RE = re.compile(r"(opus|gpt|composer)__r(\d+)\.report\.json$")
+
+
+def _remap_step(i, nsteps: int):
+    """Audit step indices are 1-indexed over all raw steps; convert to the
+    viewer's 0-indexing and clamp into [0, nsteps-1]."""
+    if not isinstance(i, int):
+        return i
+    j = i - 1
+    if j < 0:
+        j = 0
+    if nsteps and j >= nsteps:
+        j = nsteps - 1
+    return j
+
+
+def aggregate_audits(audit_dir: str, run_id: str, nsteps: int) -> bool:
+    """Merge ALL judge×round audits for a job into one report. Failure modes are
+    unioned and deduped by their (A,B,C,D) code; each merged mode records which
+    judge/round passes flagged it (`seen_by`) and how many (`occurrences`), and
+    its step indices are the union of every pass (remapped to 0-indexing). The
+    base outcome / reward-hacking / task-quality verdicts come from the highest
+    -priority judge's pass (opus → gpt → composer). Written to public/aft/."""
+    if not os.path.isdir(audit_dir):
         return False
-    if not (isinstance(rep, dict) and "failure_modes" in rep and "outcome" in rep):
+    reports = []  # (judge, round, report)
+    for fn in sorted(os.listdir(audit_dir)):
+        m = _AUDIT_RE.search(fn)
+        if not m and not fn.endswith(".report.json"):
+            continue
+        try:
+            rep = json.load(open(os.path.join(audit_dir, fn), encoding="utf-8"))
+        except Exception:
+            continue
+        if not (isinstance(rep, dict) and "failure_modes" in rep and "outcome" in rep):
+            continue
+        judge = m.group(1) if m else fn.split("__")[0]
+        rnd = m.group(2) if m else "?"
+        reports.append((judge, rnd, rep))
+    if not reports:
         return False
-    rep["trial"] = {**(rep.get("trial") or {}), "id": run_id}
-    # The audit may quote credentials it found in the trajectory (evidence
-    # quotes); scrub the serialized report before publishing.
-    rep = json.loads(scrub_secrets(json.dumps(rep, ensure_ascii=False)))
+    # Highest-priority pass supplies the representative wording + base verdicts.
+    reports.sort(key=lambda r: (JUDGE_PRIORITY.get(r[0], 9), r[1]))
+
+    groups: dict[tuple, dict] = {}
+    order: list[tuple] = []
+    for judge, rnd, rep in reports:
+        for fm in rep.get("failure_modes", []):
+            aft = fm.get("aft") or {}
+            key = (aft.get("A"), aft.get("B"), aft.get("C"), aft.get("D"))
+            g = groups.get(key)
+            if g is None:
+                g = {
+                    "name": fm.get("name"),
+                    "description": fm.get("description"),
+                    "evidence_quote": fm.get("evidence_quote"),
+                    "aft": {"A": aft.get("A"), "B": aft.get("B"), "C": aft.get("C"), "D": aft.get("D")},
+                    "counterfactual": fm.get("counterfactual"),
+                    "steps": set(),
+                    "seen_by": [],
+                }
+                groups[key] = g
+                order.append(key)
+            for i in (fm.get("step_indices") or []):
+                rs = _remap_step(i, nsteps)
+                if isinstance(rs, int):
+                    g["steps"].add(rs)
+            g["seen_by"].append(f"{judge}:r{rnd}")
+
+    modes = []
+    for key in order:
+        g = groups[key]
+        modes.append({
+            "name": g["name"],
+            "description": g["description"],
+            "evidence_quote": g["evidence_quote"],
+            "step_indices": sorted(g["steps"]),
+            "aft": g["aft"],
+            "counterfactual": g["counterfactual"],
+            "seen_by": sorted(set(g["seen_by"])),
+            "occurrences": len(g["seen_by"]),
+        })
+    # Most-agreed-upon failure modes first.
+    modes.sort(key=lambda m: (-m["occurrences"], str(m["aft"])))
+
+    base = dict(reports[0][2])
+    base["failure_modes"] = modes
+    base["trial"] = {**(base.get("trial") or {}), "id": run_id}
+    out = dict(base.get("outcome") or {})
+    if isinstance(out.get("step_where_lost"), int):
+        out["step_where_lost"] = _remap_step(out["step_where_lost"], nsteps)
+    base["outcome"] = out
+    base["aggregated_from"] = {
+        "total_audits": len(reports),
+        "judges": sorted({j for j, _, _ in reports}),
+        "distinct_modes": len(modes),
+        "primary": f"{reports[0][0]}:r{reports[0][1]}",
+        "note": ("Union of all judge×round audits, deduped by (A,B,C,D). Step "
+                 "indices remapped from the audits' 1-indexing to the viewer's "
+                 "0-indexing."),
+    }
+    # Evidence quotes may contain credentials lifted from the trajectory; scrub.
+    base = json.loads(scrub_secrets(json.dumps(base, ensure_ascii=False)))
     os.makedirs(AFT_DIR, exist_ok=True)
     with open(os.path.join(AFT_DIR, f"{run_id}.json"), "w", encoding="utf-8") as f:
-        json.dump(rep, f, ensure_ascii=False)
+        json.dump(base, f, ensure_ascii=False)
     return True
-
-
-def pick_audit(audit_dir: str) -> str | None:
-    if not os.path.isdir(audit_dir): return None
-    files = os.listdir(audit_dir)
-    for preferred in PREFERRED_AUDITS:
-        if preferred in files:
-            return os.path.join(audit_dir, preferred)
-    # fallback: first report.json
-    for f in sorted(files):
-        if f.endswith(".report.json"):
-            return os.path.join(audit_dir, f)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -821,9 +901,8 @@ def load_hi_task(task_name: str) -> bool:
         })
         loaded += 1
 
-        # Promote a pre-computed audit report when this job carries one.
-        audit_path = pick_audit(os.path.join(job_dir, "audits"))
-        if audit_path and promote_audit(audit_path, run_id):
+        # Aggregate all judge×round audits this job carries into one report.
+        if aggregate_audits(os.path.join(job_dir, "audits"), run_id, len(steps)):
             aft_runs.add(run_id)
 
     print(f"  · {task_name}: {loaded} trial(s)")
@@ -914,10 +993,13 @@ def main() -> None:
                 f"ALL of its ATIF agent trajectories under jobs/<trial>/agent/"
                 f"trajectory.json ({hi_runs} trials total, ~20 per task). Trajectories "
                 f"are externalized to public/runs/<runId>.json and lazy-loaded by the "
-                f"viewer. One annotated trial per task additionally carries a "
-                f"pre-computed AFT v1.0 audit report (promoted to public/aft/<runId>.json "
-                f"at ingest time, so that run shows '✦ Pre-analyzed' with no key "
-                f"required). Picks span spreadsheet manipulation, web search, visual "
+                f"viewer. One annotated trial per task additionally carries 15 AFT v1.0 "
+                f"audit passes (3 judges — opus, gpt, composer — × 5 rounds); these are "
+                f"aggregated into one report (union of failure modes deduped by their "
+                f"A×B×C×D code, with per-judge attribution and step indices remapped to "
+                f"the viewer's 0-indexing) and promoted to public/aft/<runId>.json, so "
+                f"that run shows '✦ Pre-analyzed' with no key required. Picks span "
+                f"spreadsheet manipulation, web search, visual "
                 f"reasoning, SWE bug fixes, language transpilation, scientific analysis, "
                 f"and python performance — exercising every viewer feature."
             )
